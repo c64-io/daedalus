@@ -23,10 +23,10 @@ d7 is:
 - **Human-driven, AI-assisted.** The human owns the breakdown. Claude (via the
   Anthropic API) is invoked on demand through commands like `d7 suggest`,
   `d7 expand`, `d7 refine`, `d7 generate` — never silently.
-- **Language-agnostic for code generation.** d7 itself is written in Go, but
-  its generation commands produce code in whatever language/framework the
-  user specifies for the target project. d7 is a planning *and* coding
-  companion.
+- **Targeted, not universal.** v1 supports **Go and TypeScript** end-to-end
+  as generation and verification targets. Other languages are a v2+
+  ambition. d7 itself is written in Go, but Go is not privileged over
+  TypeScript as a *target* — they are peers.
 - **Hexagonal by construction.** The core knows nothing about cobra, Clover,
   the filesystem, git, or the Anthropic API. Everything crosses a port.
 
@@ -73,6 +73,50 @@ Rules:
 - **Clover is the source of truth.** Markdown/JSON/Gherkin are *exports*, not
   the store. Exports are regeneratable; the DB is authoritative.
 
+## Supported targets (v1)
+
+v1 supports exactly two target ecosystems end-to-end — planning, generation,
+*and* verification — and nothing else:
+
+| Language   | Runner library                                   | Install surface         |
+| ---------- | ------------------------------------------------ | ----------------------- |
+| Go         | [`github.com/cucumber/godog`](https://github.com/cucumber/godog) | `go get` + `go test`    |
+| TypeScript | [`@cucumber/cucumber`](https://github.com/cucumber/cucumber-js)  | `npm`/`pnpm` devDependency + `npx cucumber-js` |
+
+Both runners are maintained by the Cucumber organization, both emit
+[Cucumber JSON](https://github.com/cucumber/cucumber-json-schema) via a
+documented `--format` flag, and both preserve Gherkin tags verbatim in their
+output — which is what makes the scenario-ID mapping described below work
+identically across both.
+
+### Target language is declared at `d7 init` and is immutable
+
+The target language (or languages — a project may declare both `go` and
+`typescript`, e.g. a Go backend paired with a TypeScript frontend) is set
+once, at workspace creation:
+
+```sh
+d7 init --lang go
+d7 init --lang typescript
+d7 init --lang go,typescript         # multi-target project
+```
+
+Once chosen, **the target set is immutable for the life of the workspace**.
+There is no `d7 target set` command, and this is deliberate:
+
+- The generation ledger becomes incoherent if half the Stories were
+  generated under one target and half under another.
+- Step-definition layout, runner invocation, and verification semantics are
+  target-specific; changing mid-stream guarantees drift.
+- A solo founder who truly picked wrong can re-`init` a fresh workspace
+  faster than d7 could correctly migrate one. v1 takes the simple rule.
+
+The chosen target set is stored in a workspace metadata record in Clover,
+validated by every command that touches code generation or verification,
+and surfaced in `d7 status`. In multi-target workspaces, each **Story**
+declares which single target it belongs to; Features and Epics may
+aggregate across targets.
+
 ## Scenarios → Gherkin
 
 Scenarios are stored as structured records but are designed to round-trip to
@@ -80,13 +124,48 @@ real [Gherkin](https://cucumber.io/docs/gherkin/) `.feature` files via
 `d7 export gherkin`:
 
 - Each Scenario has a `title`, ordered `given[]`, a `when`, ordered `then[]`,
-  and optional `tags[]`.
-- Exported features live under `d7/exports/features/` and can be consumed by
-  godog, Cucumber, behave, SpecFlow, etc.
-- **v1 generates Gherkin only.** d7 does *not* ship step-definition stubs,
-  test runners, or a `d7 verify` loop in v1. The Gherkin file is the
-  handoff; wiring it to a runner in the target stack is the user's call.
-  Closing the spec→test→code loop is a v2 ambition, not a v1 promise.
+  and optional user `tags[]`.
+- Exported features live under `d7/exports/features/` and are consumed by
+  the target's runner (godog or cucumber-js).
+
+### Mandatory scenario-ID tagging
+
+Every scenario d7 exports is automatically prefixed with a tag carrying its
+stable d7 ID:
+
+```gherkin
+@d7:SCEN-114
+Scenario: User can redeem a coupon at checkout
+  Given ...
+```
+
+This tag is **not optional and not user-editable**. It is the contract that
+lets d7 map runner output back to Scenario records in Clover: both godog
+and cucumber-js preserve tags verbatim in their JSON output, so
+verification results flow back via exact tag match rather than fuzzy title
+matching. Users are free to rename scenarios at any time — the
+verification ledger and generation ledger track by `SCEN-XXX`, never by
+title. This is cheap to enforce now and impossible to retrofit cleanly
+later.
+
+## Verification (`d7 verify`)
+
+`d7 verify` runs the Gherkin scenarios of a target (Story, Feature, or
+Epic) through the declared runner for that target's language and records
+structured pass/fail results in a **verification ledger** in Clover. It is
+a first-class command for two reasons:
+
+1. It is the **terminator of the `d7 generate` agent loop** (see the next
+   section). The generator is not "done" until verify returns green.
+2. It is available as a **standalone command** so the user can re-verify
+   after editing code by hand, after pulling changes from collaborators,
+   or before merging a worktree back to main. Manual edits are expected
+   and supported; the verifier is not exclusively for the AI's benefit.
+
+Verification results are append-only, keyed by
+`(scenario_id, generation_id | "manual", timestamp)`, so the history of
+"SCEN-114 flipped red when we regenerated Story STORY-047 from spec v7 to
+v8" is queryable for the life of the project.
 
 ## AI assist
 
@@ -126,39 +205,46 @@ real [Gherkin](https://cucumber.io/docs/gherkin/) `.feature` files via
 out a fixed template, d7 acts like a focused coding agent — in the same
 spirit as Claude Code itself:
 
-- **Target selection.** Accepts a Story, a Feature, or a whole Epic, plus a
-  language/framework hint (e.g. `--lang go`, `--framework nextjs`,
-  `--lang python --framework fastapi`).
+- **Target selection.** Accepts a Story, a Feature, or a whole Epic. The
+  target language is *not* a per-invocation flag: it is read from the
+  workspace metadata set at `d7 init`. In multi-target workspaces, each
+  Story carries its own target, so `d7 generate story STORY-047`
+  unambiguously knows which runner and which ecosystem to produce for.
 - **Context assembly.** Reads the relevant spec tree, cross-links, and
   Gherkin scenarios out of Clover. The happy path is **clean-slate
   generation** into a fresh target directory, but generation is also
   **codebase-aware**: if the target already contains code, d7 skims it so
   the agent can match existing conventions rather than fighting them.
-- **Multi-turn agent loop.** Generation is not one prompt, one batch of
-  writes. It's an agentic loop: the model proposes file reads, file
-  edits, and (where appropriate) command executions; d7 runs them through
-  driven ports; results feed back into the next turn until the agent
-  declares the slice complete or hits a turn/budget limit. This is the
-  single biggest engineering piece in v1 and the reason the AI port is
-  richer than a plain "complete this prompt" call.
+- **Three artifact classes per Story.** Every successful generation
+  produces (1) implementation code, (2) step definitions binding the
+  Story's scenarios to that code (godog step funcs for Go targets,
+  cucumber-js step modules for TypeScript targets), and (3) whatever
+  runner bootstrap the target needs (a `features_test.go` + godog harness,
+  a `cucumber.js` config plus `package.json` script, etc.). All three are
+  the agent's output, not a template.
+- **Multi-turn agent loop with verify as the terminator.** Generation is
+  not one prompt, one batch of writes. It's an agentic loop: the model
+  proposes file reads, file edits, and command executions; d7 runs them
+  through driven ports; *then d7 invokes `ScenarioRunner.Run` against the
+  updated worktree and feeds the structured results back into the next
+  turn*. The loop ends only when verification returns all-green for the
+  target Story, or when the turn/token budget is exhausted. Red scenarios
+  at exhaustion are reported to the user with the worktree left intact
+  for inspection — never silently accepted. This is the single biggest
+  engineering piece in v1 and the reason the AI port is richer than a
+  plain "complete this prompt" call.
 - **Worktree isolation.** Generated changes land in a **git worktree**
   of the target repo, not the user's main working tree. The user reviews
   the worktree's diff, merges it when satisfied, and discards it
   otherwise. The user's uncommitted work is never at risk.
 - **Regeneration is first-class.** d7 tracks which Story produced which
-  files (a generation ledger in Clover). When the Story's spec changes,
+  files and which scenarios verified green at that point (a generation
+  ledger in Clover). When the Story's spec changes,
   `d7 regenerate story STORY-047` can redo just that slice, diffing
-  against the previous generation so the user sees exactly what the spec
-  change implies for the code. Regeneration reuses the same worktree
-  flow; nothing is overwritten without review.
-
-In v1 the generator is intentionally language-agnostic: d7 does not ship with
-a fixed set of templates and **Go is not a privileged target**. The fact that
-d7 itself is written in Go is an implementation detail of the tool; the
-target project can be in any language or framework the user names. d7
-composes a strong prompt from the spec tree and the user's language choice,
-and drives Claude to produce idiomatic code for that target. Over time,
-sharpened per-language profiles can be added as presets.
+  against the previous generation and against the previous verification
+  state so the user sees exactly what the spec change implies for the
+  code *and* for the scenario outcomes. Regeneration reuses the same
+  worktree flow; nothing is overwritten without review.
 
 ## Interaction model (hybrid)
 
@@ -186,7 +272,9 @@ internal/core/
     workspace_repository.go                   # driven: storage
     filesystem.go                             # driven: disk side-effects
     (future) idea_service.go ... code_generator.go  # driving
+    (future) verifier.go                      # driving: d7 verify use case
     (future) ai_assistant.go                  # driven: multi-turn agent over LLM
+    (future) scenario_runner.go               # driven: run Gherkin, return structured results
     (future) git_worktree.go                  # driven: worktree create/commit/discard
     (future) editor.go                        # driven: $EDITOR
     (future) clock.go                         # driven: time (audit trail)
@@ -197,6 +285,8 @@ internal/adapter/
     clover/                                   # Clover v2 implementation of storage ports
     osfs/                                     # os-backed FileSystem
     (future) anthropic/                       # Anthropic SDK impl of ai_assistant (agentic loop)
+    (future) godog/                           # ScenarioRunner for Go targets
+    (future) cucumberjs/                      # ScenarioRunner for TypeScript targets
     (future) gitworktree/                     # git worktree adapter for generation
     (future) editorexec/                      # $EDITOR launcher
 ```
@@ -219,7 +309,10 @@ internal/adapter/
 5. **Adapters own their libraries.** Cobra types live only in
    `adapter/driving/cli`. Clover types live only in `adapter/driven/clover`.
    The Anthropic SDK will live only in `adapter/driven/anthropic`. Git
-   plumbing lives only in `adapter/driven/gitworktree`.
+   plumbing lives only in `adapter/driven/gitworktree`. godog imports
+   live only in `adapter/driven/godog`; cucumber-js invocation (via
+   `os/exec`) lives only in `adapter/driven/cucumberjs`. The core sees
+   only `port.ScenarioRunner`.
 6. **Commands are thin.** A cobra `RunE` function should parse args, call
    exactly one port method, format the result, and return. All branching
    logic belongs in services.
@@ -238,9 +331,12 @@ Only the foundation is in place:
 - Adapters: `clover` (storage), `osfs` (filesystem), `cli` (cobra).
 
 Everything else in this document — ideas, epics, features, stories, the
-sparse graph, history, Gherkin export, AI assist, the agentic generator,
-worktree isolation, regeneration — is planned surface area and should be
-built incrementally, each behind its own port, each with the same discipline.
+sparse graph, history, Gherkin export with mandatory `@d7:SCEN-XXX`
+tagging, AI assist, the agentic generator, worktree isolation,
+regeneration, the ScenarioRunner port with godog and cucumber-js
+adapters, and the verify loop that terminates generation — is planned
+surface area and should be built incrementally, each behind its own
+port, each with the same discipline.
 
 ## Build & verify
 
@@ -299,7 +395,9 @@ This is a standing instruction, not a per-request ask.
 - Team features: assignment, ownership, @mentions, review queues.
 - Jira / Linear / GitHub Issues import/export.
 - Web or TUI frontends — CLI only.
-- Fine-tuned per-language code generators (the v1 generator is prompt-driven
-  and language-agnostic).
-- Step-definition generation, test runners, and a `d7 verify` spec→test loop.
+- Target languages beyond Go and TypeScript. Additional `ScenarioRunner`
+  adapters (pytest-bdd, cucumber-jvm, etc.) are v2+ work and do not
+  require any core changes when added.
+- Mutating a workspace's declared target set after `d7 init`. If the user
+  picked wrong, the answer in v1 is to re-`init` a fresh workspace.
 - Secret management beyond `ANTHROPIC_API_KEY` in the environment.
