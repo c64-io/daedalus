@@ -14,6 +14,10 @@ import (
 // that already contains a d7 workspace.
 var ErrWorkspaceExists = errors.New("d7 workspace already initialized")
 
+// ErrNoTargets is returned when a workspace init request carries no
+// declared targets. At least one target is required.
+var ErrNoTargets = errors.New("at least one target must be declared")
+
 // Compile-time assertion that WorkspaceService satisfies the driving port.
 var _ port.WorkspaceInitializer = (*WorkspaceService)(nil)
 
@@ -30,9 +34,15 @@ func NewWorkspaceService(fs port.FileSystem, repo port.WorkspaceRepository) *Wor
 	return &WorkspaceService{fs: fs, repo: repo}
 }
 
-// Init creates the on-disk workspace layout rooted at rootDir and
-// provisions its database via the injected repository.
-func (s *WorkspaceService) Init(ctx context.Context, rootDir string) (*domain.Workspace, error) {
+// Init creates the on-disk workspace layout rooted at req.RootDir and
+// provisions its database via the injected repository, persisting the
+// supplied targets as the workspace's immutable metadata.
+func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*domain.Workspace, error) {
+	if len(req.Targets) == 0 {
+		return nil, ErrNoTargets
+	}
+
+	rootDir := req.RootDir
 	if rootDir == "" || rootDir == "." {
 		cwd, err := s.fs.Getwd()
 		if err != nil {
@@ -58,7 +68,8 @@ func (s *WorkspaceService) Init(ctx context.Context, rootDir string) (*domain.Wo
 		return nil, fmt.Errorf("create workspace dirs: %w", err)
 	}
 
-	if err := s.repo.CreateDatabase(ctx, ws.DBDir); err != nil {
+	meta := domain.WorkspaceMetadata{Targets: req.Targets}
+	if err := s.repo.CreateDatabase(ctx, ws.DBDir, meta); err != nil {
 		return nil, fmt.Errorf("create database: %w", err)
 	}
 
