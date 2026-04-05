@@ -280,6 +280,19 @@ When adding a new feature:
 When in doubt about scope: if a change feels like it wants to touch three
 adapters and the core at once, it is probably two changes. Split it.
 
+### Always link commits back to GitHub
+
+After every code change that results in a commit on a pushed branch, end the
+reply with an up-to-date GitHub link so the user can click through without
+hunting. Prefer the **commit** URL for single-commit changes
+(`https://github.com/c64-io/daedalus/commit/<sha>`) and the **branch compare**
+URL for multi-commit updates
+(`https://github.com/c64-io/daedalus/compare/main...<branch>`). If the change
+is to a single reviewable file, a direct file link on the branch is also
+welcome
+(`https://github.com/c64-io/daedalus/blob/<branch>/<path>`).
+This is a standing instruction, not a per-request ask.
+
 ## Out of scope for v1
 
 - Multi-user / sync / server component.
