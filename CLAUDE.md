@@ -102,6 +102,23 @@ real [Gherkin](https://cucumber.io/docs/gherkin/) `.feature` files via
 - **AI output is a proposal.** It is shown to the user, diffed against current
   state if relevant, and only written on explicit confirmation (or with
   `--yes`).
+- **Interactive refinement, not one-shot.** AI-driven commands like
+  `d7 suggest`, `d7 expand`, and `d7 refine` run an interactive loop: the
+  model produces a proposal, the user critiques or edits it, the model
+  revises, and so on until the user accepts. These commands are dialogues,
+  not batch jobs.
+- **Finalize before descending.** Each layer of the hierarchy must reach an
+  agreed-upon state before work begins on the next. `d7 expand story` will
+  not generate Given/When/Then scenarios until the Story's prose Spec is
+  locked; `d7 suggest features` will not propose Features for an Epic that is
+  still `draft`. This rule is enforced in the service layer, not just
+  suggested in docs.
+- **Uncertainty bubbles up.** If the model cannot produce a confident
+  proposal at a given layer because of ambiguity in the parent, the command
+  halts with the open questions surfaced to the user at the *parent* level,
+  rather than guessing downward. A fuzzy Epic must be sharpened before its
+  Features are drafted; a fuzzy Spec must be sharpened before its scenarios
+  are written. The user is always the arbiter of the ambiguity.
 
 ## Code generation
 
@@ -136,10 +153,12 @@ spirit as Claude Code itself:
   flow; nothing is overwritten without review.
 
 In v1 the generator is intentionally language-agnostic: d7 does not ship with
-a fixed set of templates. It composes a strong prompt from the spec tree and
-the user's language choice, and drives Claude to produce idiomatic code for
-that target. Over time, sharpened per-language profiles can be added as
-presets.
+a fixed set of templates and **Go is not a privileged target**. The fact that
+d7 itself is written in Go is an implementation detail of the tool; the
+target project can be in any language or framework the user names. d7
+composes a strong prompt from the spec tree and the user's language choice,
+and drives Claude to produce idiomatic code for that target. Over time,
+sharpened per-language profiles can be added as presets.
 
 ## Interaction model (hybrid)
 
