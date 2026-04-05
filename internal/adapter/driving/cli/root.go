@@ -11,6 +11,8 @@ import (
 func NewRootCmd(
 	initializer port.WorkspaceInitializer,
 	statusReader port.WorkspaceStatusReader,
+	ideaCreator port.IdeaCreator,
+	ideaReader port.IdeaReader,
 ) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "d7",
@@ -22,5 +24,6 @@ func NewRootCmd(
 
 	root.AddCommand(newInitCmd(initializer))
 	root.AddCommand(newStatusCmd(statusReader))
+	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader))
 	return root
 }

@@ -18,8 +18,9 @@ var ErrWorkspaceExists = errors.New("d7 workspace already initialized")
 // declared target. Exactly one target is required.
 var ErrNoTarget = errors.New("a target must be declared")
 
-// ErrWorkspaceNotFound is returned by Status when no d7 workspace
-// exists at the resolved location.
+// ErrWorkspaceNotFound is returned by Status (and any command that
+// requires an existing workspace) when no d7 workspace exists at
+// the resolved location.
 var ErrWorkspaceNotFound = errors.New("d7 workspace not found")
 
 // Compile-time assertions that WorkspaceService satisfies both
@@ -29,9 +30,10 @@ var (
 	_ port.WorkspaceStatusReader = (*WorkspaceService)(nil)
 )
 
-// WorkspaceService implements the WorkspaceInitializer use case.
-// It depends only on driven ports — no direct I/O imports — so it is
-// fully unit-testable with in-memory fakes.
+// WorkspaceService implements the WorkspaceInitializer and
+// WorkspaceStatusReader use cases. It depends only on driven ports —
+// no direct I/O imports — so it is fully unit-testable with in-memory
+// fakes.
 type WorkspaceService struct {
 	fs   port.FileSystem
 	repo port.WorkspaceRepository
@@ -50,21 +52,10 @@ func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*dom
 		return nil, ErrNoTarget
 	}
 
-	rootDir := req.RootDir
-	if rootDir == "" || rootDir == "." {
-		cwd, err := s.fs.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("resolve cwd: %w", err)
-		}
-		rootDir = cwd
-	}
-
-	absRoot, err := s.fs.Abs(rootDir)
+	ws, err := resolveWorkspace(s.fs, req.RootDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve root dir: %w", err)
+		return nil, err
 	}
-
-	ws := domain.NewWorkspace(absRoot)
 
 	if _, err := s.fs.Stat(ws.Dir); err == nil {
 		return nil, fmt.Errorf("%w at %s", ErrWorkspaceExists, ws.Dir)
@@ -86,30 +77,11 @@ func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*dom
 
 // Status resolves the workspace rooted at rootDir (or the current
 // working directory when rootDir is empty) and returns a snapshot of
-// its on-disk location plus persisted metadata. It returns a wrapped
-// ErrWorkspaceNotFound when the d7 directory or its database does
-// not exist at the resolved location.
+// its on-disk location plus persisted metadata.
 func (s *WorkspaceService) Status(ctx context.Context, rootDir string) (*domain.WorkspaceStatus, error) {
-	if rootDir == "" || rootDir == "." {
-		cwd, err := s.fs.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("resolve cwd: %w", err)
-		}
-		rootDir = cwd
-	}
-
-	absRoot, err := s.fs.Abs(rootDir)
+	ws, err := requireWorkspace(s.fs, rootDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve root dir: %w", err)
-	}
-
-	ws := domain.NewWorkspace(absRoot)
-
-	if _, err := s.fs.Stat(ws.DBDir); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%w at %s", ErrWorkspaceNotFound, ws.Dir)
-		}
-		return nil, fmt.Errorf("stat workspace db dir: %w", err)
+		return nil, err
 	}
 
 	meta, err := s.repo.ReadMetadata(ctx, ws.DBDir)

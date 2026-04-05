@@ -14,11 +14,15 @@ import (
 )
 
 func main() {
-	// Composition root: wire driven adapters → core service → driving adapter.
+	// Composition root: wire driven adapters → core services → driving adapter.
 	fs := osfs.New()
-	repo := cloveradapter.NewWorkspaceRepository()
-	svc := service.NewWorkspaceService(fs, repo)
-	root := cli.NewRootCmd(svc, svc)
+	wsRepo := cloveradapter.NewWorkspaceRepository()
+	ideaRepo := cloveradapter.NewIdeaRepository()
+
+	wsSvc := service.NewWorkspaceService(fs, wsRepo)
+	ideaSvc := service.NewIdeaService(fs, ideaRepo)
+
+	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
