@@ -8,14 +8,16 @@ import (
 	"syscall"
 
 	cloveradapter "github.com/c64-io/daedalus/internal/adapter/driven/clover"
+	"github.com/c64-io/daedalus/internal/adapter/driven/osfs"
 	"github.com/c64-io/daedalus/internal/adapter/driving/cli"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
 func main() {
 	// Composition root: wire driven adapters → core service → driving adapter.
+	fs := osfs.New()
 	repo := cloveradapter.NewWorkspaceRepository()
-	svc := service.NewWorkspaceService(repo)
+	svc := service.NewWorkspaceService(fs, repo)
 	root := cli.NewRootCmd(svc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

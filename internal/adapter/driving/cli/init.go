@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -15,16 +14,9 @@ func newInitCmd(initializer port.WorkspaceInitializer) *cobra.Command {
 		Short: "Initialize a d7 workspace in the given directory (default: cwd)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := "."
+			root := ""
 			if len(args) == 1 {
 				root = args[0]
-			}
-			if root == "." {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return fmt.Errorf("resolve cwd: %w", err)
-				}
-				root = cwd
 			}
 
 			ws, err := initializer.Init(cmd.Context(), root)

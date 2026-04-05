@@ -5,7 +5,12 @@ import (
 	"fmt"
 
 	c "github.com/ostafen/clover/v2"
+
+	"github.com/c64-io/daedalus/internal/core/port"
 )
+
+// Compile-time assertion that WorkspaceRepository satisfies the driven port.
+var _ port.WorkspaceRepository = (*WorkspaceRepository)(nil)
 
 // WorkspaceRepository is the Clover v2 implementation of
 // port.WorkspaceRepository. It provisions the directory-backed store
