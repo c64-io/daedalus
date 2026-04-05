@@ -18,8 +18,16 @@ var ErrWorkspaceExists = errors.New("d7 workspace already initialized")
 // declared target. Exactly one target is required.
 var ErrNoTarget = errors.New("a target must be declared")
 
-// Compile-time assertion that WorkspaceService satisfies the driving port.
-var _ port.WorkspaceInitializer = (*WorkspaceService)(nil)
+// ErrWorkspaceNotFound is returned by Status when no d7 workspace
+// exists at the resolved location.
+var ErrWorkspaceNotFound = errors.New("d7 workspace not found")
+
+// Compile-time assertions that WorkspaceService satisfies both
+// driving ports it implements.
+var (
+	_ port.WorkspaceInitializer  = (*WorkspaceService)(nil)
+	_ port.WorkspaceStatusReader = (*WorkspaceService)(nil)
+)
 
 // WorkspaceService implements the WorkspaceInitializer use case.
 // It depends only on driven ports — no direct I/O imports — so it is
@@ -74,4 +82,40 @@ func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*dom
 	}
 
 	return ws, nil
+}
+
+// Status resolves the workspace rooted at rootDir (or the current
+// working directory when rootDir is empty) and returns a snapshot of
+// its on-disk location plus persisted metadata. It returns a wrapped
+// ErrWorkspaceNotFound when the d7 directory or its database does
+// not exist at the resolved location.
+func (s *WorkspaceService) Status(ctx context.Context, rootDir string) (*domain.WorkspaceStatus, error) {
+	if rootDir == "" || rootDir == "." {
+		cwd, err := s.fs.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("resolve cwd: %w", err)
+		}
+		rootDir = cwd
+	}
+
+	absRoot, err := s.fs.Abs(rootDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve root dir: %w", err)
+	}
+
+	ws := domain.NewWorkspace(absRoot)
+
+	if _, err := s.fs.Stat(ws.DBDir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%w at %s", ErrWorkspaceNotFound, ws.Dir)
+		}
+		return nil, fmt.Errorf("stat workspace db dir: %w", err)
+	}
+
+	meta, err := s.repo.ReadMetadata(ctx, ws.DBDir)
+	if err != nil {
+		return nil, fmt.Errorf("read workspace metadata: %w", err)
+	}
+
+	return &domain.WorkspaceStatus{Workspace: ws, Metadata: meta}, nil
 }

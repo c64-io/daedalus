@@ -18,7 +18,7 @@ func main() {
 	fs := osfs.New()
 	repo := cloveradapter.NewWorkspaceRepository()
 	svc := service.NewWorkspaceService(fs, repo)
-	root := cli.NewRootCmd(svc)
+	root := cli.NewRootCmd(svc, svc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

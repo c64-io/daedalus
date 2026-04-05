@@ -6,6 +6,7 @@ import (
 
 	c "github.com/ostafen/clover/v2"
 	d "github.com/ostafen/clover/v2/document"
+	q "github.com/ostafen/clover/v2/query"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
 	"github.com/c64-io/daedalus/internal/core/port"
@@ -60,4 +61,45 @@ func (r *WorkspaceRepository) CreateDatabase(_ context.Context, dbDir string, me
 	}
 
 	return nil
+}
+
+// ReadMetadata opens the Clover store at dbDir, reads the single
+// document in the workspace collection, and returns it as a
+// domain.WorkspaceMetadata. Returns a wrapped ErrMetadataNotFound
+// when the collection is empty or missing. The store is closed
+// before the function returns in all cases.
+func (r *WorkspaceRepository) ReadMetadata(_ context.Context, dbDir string) (_ domain.WorkspaceMetadata, retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("open clover db: %w", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && retErr == nil {
+			retErr = fmt.Errorf("close clover db: %w", closeErr)
+		}
+	}()
+
+	has, err := db.HasCollection(workspaceCollection)
+	if err != nil {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("check %q collection: %w", workspaceCollection, err)
+	}
+	if !has {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q missing", port.ErrMetadataNotFound, workspaceCollection)
+	}
+
+	doc, err := db.FindFirst(q.NewQuery(workspaceCollection))
+	if err != nil {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("find workspace metadata: %w", err)
+	}
+	if doc == nil {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q empty", port.ErrMetadataNotFound, workspaceCollection)
+	}
+
+	raw, _ := doc.Get(fieldTarget).(string)
+	target, err := domain.ParseTarget(raw)
+	if err != nil {
+		return domain.WorkspaceMetadata{}, fmt.Errorf("decode %q field: %w", fieldTarget, err)
+	}
+
+	return domain.WorkspaceMetadata{Target: target}, nil
 }

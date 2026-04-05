@@ -73,20 +73,33 @@ func (fakeFileInfo) ModTime() time.Time { return time.Time{} }
 func (fakeFileInfo) IsDir() bool        { return true }
 func (fakeFileInfo) Sys() any           { return nil }
 
-// fakeRepo captures the arguments CreateDatabase is called with so
-// tests can assert on them.
+// fakeRepo captures the arguments CreateDatabase is called with and
+// answers ReadMetadata with a pre-seeded value. Tests that exercise
+// the read path set readMeta/readErr before invoking Status.
 type fakeRepo struct {
-	called    bool
-	dbDir     string
-	meta      domain.WorkspaceMetadata
-	createErr error
+	// CreateDatabase captures.
+	createCalled bool
+	dbDir        string
+	meta         domain.WorkspaceMetadata
+	createErr    error
+
+	// ReadMetadata seeds.
+	readMeta domain.WorkspaceMetadata
+	readErr  error
 }
 
 func (r *fakeRepo) CreateDatabase(_ context.Context, dbDir string, meta domain.WorkspaceMetadata) error {
-	r.called = true
+	r.createCalled = true
 	r.dbDir = dbDir
 	r.meta = meta
 	return r.createErr
+}
+
+func (r *fakeRepo) ReadMetadata(_ context.Context, _ string) (domain.WorkspaceMetadata, error) {
+	if r.readErr != nil {
+		return domain.WorkspaceMetadata{}, r.readErr
+	}
+	return r.readMeta, nil
 }
 
 func TestInit_Success_Go(t *testing.T) {
@@ -114,7 +127,7 @@ func TestInit_Success_Go(t *testing.T) {
 	if _, ok := fs.created[wantDB]; !ok {
 		t.Errorf("expected MkdirAll(%q); created=%v", wantDB, fs.created)
 	}
-	if !repo.called {
+	if !repo.createCalled {
 		t.Fatal("expected CreateDatabase to be called")
 	}
 	if repo.dbDir != wantDB {
@@ -171,7 +184,74 @@ func TestInit_WorkspaceAlreadyExists(t *testing.T) {
 	if !errors.Is(err, service.ErrWorkspaceExists) {
 		t.Fatalf("Init err = %v, want ErrWorkspaceExists", err)
 	}
-	if repo.called {
+	if repo.createCalled {
 		t.Error("CreateDatabase should not be called when workspace exists")
+	}
+}
+
+func TestStatus_Success(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeFS("/home/alice/proj")
+	fs.existing["/home/alice/proj/d7/.db"] = true
+	repo := &fakeRepo{
+		readMeta: domain.WorkspaceMetadata{Target: domain.TargetGo},
+	}
+	svc := service.NewWorkspaceService(fs, repo)
+
+	st, err := svc.Status(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Status returned unexpected error: %v", err)
+	}
+	if st.Workspace.Dir != "/home/alice/proj/d7" {
+		t.Errorf("st.Workspace.Dir = %q, want %q", st.Workspace.Dir, "/home/alice/proj/d7")
+	}
+	if st.Metadata.Target != domain.TargetGo {
+		t.Errorf("st.Metadata.Target = %q, want %q", st.Metadata.Target, domain.TargetGo)
+	}
+}
+
+func TestStatus_ExplicitRoot(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeFS("/anywhere")
+	fs.existing["/srv/app/d7/.db"] = true
+	repo := &fakeRepo{
+		readMeta: domain.WorkspaceMetadata{Target: domain.TargetTypeScript},
+	}
+	svc := service.NewWorkspaceService(fs, repo)
+
+	st, err := svc.Status(context.Background(), "/srv/app")
+	if err != nil {
+		t.Fatalf("Status returned unexpected error: %v", err)
+	}
+	if st.Metadata.Target != domain.TargetTypeScript {
+		t.Errorf("st.Metadata.Target = %q, want %q", st.Metadata.Target, domain.TargetTypeScript)
+	}
+}
+
+func TestStatus_WorkspaceNotFound(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeFS("/empty")
+	svc := service.NewWorkspaceService(fs, &fakeRepo{})
+
+	_, err := svc.Status(context.Background(), "/empty")
+	if !errors.Is(err, service.ErrWorkspaceNotFound) {
+		t.Fatalf("Status err = %v, want ErrWorkspaceNotFound", err)
+	}
+}
+
+func TestStatus_ReadMetadataError(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeFS("/home/alice/proj")
+	fs.existing["/home/alice/proj/d7/.db"] = true
+	repo := &fakeRepo{readErr: errors.New("boom")}
+	svc := service.NewWorkspaceService(fs, repo)
+
+	_, err := svc.Status(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected Status to return error when repo.ReadMetadata fails")
 	}
 }

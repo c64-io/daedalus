@@ -31,3 +31,12 @@ type WorkspaceMetadata struct {
 	// monorepo / multi-target support is a v2 ambition.
 	Target Target
 }
+
+// WorkspaceStatus is a read-only snapshot of an existing workspace,
+// combining its on-disk location with the metadata persisted in its
+// database. It is the return value of the WorkspaceStatusReader use
+// case.
+type WorkspaceStatus struct {
+	Workspace *Workspace
+	Metadata  WorkspaceMetadata
+}

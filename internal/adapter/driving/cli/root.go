@@ -8,7 +8,10 @@ import (
 
 // NewRootCmd builds the root `d7` command tree, wiring in the driving
 // ports provided by the composition root.
-func NewRootCmd(initializer port.WorkspaceInitializer) *cobra.Command {
+func NewRootCmd(
+	initializer port.WorkspaceInitializer,
+	statusReader port.WorkspaceStatusReader,
+) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "d7",
 		Short:         "Daedalus (d7) — workspace CLI",
@@ -18,5 +21,6 @@ func NewRootCmd(initializer port.WorkspaceInitializer) *cobra.Command {
 	}
 
 	root.AddCommand(newInitCmd(initializer))
+	root.AddCommand(newStatusCmd(statusReader))
 	return root
 }
