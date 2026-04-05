@@ -15,10 +15,10 @@ type InitRequest struct {
 	// via the FileSystem port.
 	RootDir string
 
-	// Targets is the set of code-generation and verification targets
-	// declared for the workspace. Must contain at least one Target.
-	// Targets are immutable for the life of the workspace.
-	Targets []domain.Target
+	// Target is the code-generation and verification ecosystem
+	// declared for the workspace. It is immutable for the life of
+	// the workspace.
+	Target domain.Target
 }
 
 // WorkspaceInitializer is the driving port exposing the "init workspace"

@@ -3,14 +3,15 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 )
 
-// Target is a supported code-generation and verification ecosystem for a
-// d7 workspace. The set of valid Targets is fixed for v1: Go and
-// TypeScript. Additional ecosystems are v2+ work and will be added by
-// introducing new ScenarioRunner adapters, not by widening this type.
+// Target is the code-generation and verification ecosystem a d7
+// workspace produces and checks against. In v1 a workspace has
+// exactly one Target, chosen at `d7 init` and immutable thereafter.
+// The set of valid Targets is fixed: Go and TypeScript. Additional
+// ecosystems are v2+ work and will be added by introducing new
+// ScenarioRunner adapters, not by widening this type.
 type Target string
 
 const (
@@ -20,13 +21,17 @@ const (
 	TargetTypeScript Target = "typescript"
 )
 
-// ErrUnknownTarget is returned by ParseTargets when an input value is
+// ErrUnknownTarget is returned by ParseTarget when the input value is
 // not one of the supported targets.
 var ErrUnknownTarget = errors.New("unknown target")
 
+// ErrMultipleTargets is returned by ParseTarget when the raw input
+// looks like a list (contains a comma). v1 workspaces are
+// single-target; monorepo / multi-target support is a v2 ambition.
+var ErrMultipleTargets = errors.New("only one target is supported per workspace")
+
 // allTargets enumerates the valid Target values in a stable order.
-// Used for error messages and for the canonical sort applied by
-// ParseTargets.
+// Used for error messages.
 var allTargets = []Target{TargetGo, TargetTypeScript}
 
 // knownTargets indexes the valid Target values for O(1) validation.
@@ -35,32 +40,25 @@ var knownTargets = map[Target]struct{}{
 	TargetTypeScript: {},
 }
 
-// ParseTargets converts a list of raw strings (typically from CLI flag
-// input) into a deduplicated, canonically sorted slice of valid
-// Targets. Inputs are case-insensitive and may be surrounded by
-// whitespace. An empty or unknown value produces an error wrapping
-// ErrUnknownTarget. ParseTargets is the sole constructor of Target
-// values outside the package, so any []Target a service receives is
-// valid by construction.
-func ParseTargets(raw []string) ([]Target, error) {
-	seen := make(map[Target]struct{}, len(raw))
-	for _, r := range raw {
-		norm := strings.ToLower(strings.TrimSpace(r))
-		if norm == "" {
-			return nil, fmt.Errorf("%w: empty target", ErrUnknownTarget)
-		}
-		t := Target(norm)
-		if _, ok := knownTargets[t]; !ok {
-			return nil, fmt.Errorf("%w %q (supported: %s)", ErrUnknownTarget, r, SupportedTargets())
-		}
-		seen[t] = struct{}{}
+// ParseTarget converts a single raw string (typically from CLI flag
+// input) into a valid Target. The input is case-insensitive and may
+// be surrounded by whitespace. Empty input, values containing a
+// comma, and unrecognized values all produce errors. ParseTarget is
+// the sole constructor of Target values outside the package, so any
+// Target a service receives is valid by construction.
+func ParseTarget(raw string) (Target, error) {
+	norm := strings.ToLower(strings.TrimSpace(raw))
+	if norm == "" {
+		return "", fmt.Errorf("%w: empty target", ErrUnknownTarget)
 	}
-	out := make([]Target, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
+	if strings.Contains(norm, ",") {
+		return "", fmt.Errorf("%w: got %q", ErrMultipleTargets, raw)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out, nil
+	t := Target(norm)
+	if _, ok := knownTargets[t]; !ok {
+		return "", fmt.Errorf("%w %q (supported: %s)", ErrUnknownTarget, raw, SupportedTargets())
+	}
+	return t, nil
 }
 
 // SupportedTargets returns a comma-separated list of the supported

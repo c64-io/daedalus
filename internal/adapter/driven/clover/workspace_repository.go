@@ -15,7 +15,7 @@ import (
 // These are the Clover adapter's concern, not the core's.
 const (
 	workspaceCollection = "workspace"
-	fieldTargets        = "targets"
+	fieldTarget         = "target"
 )
 
 // Compile-time assertion that WorkspaceRepository satisfies the driven port.
@@ -34,7 +34,7 @@ func NewWorkspaceRepository() *WorkspaceRepository {
 
 // CreateDatabase opens (and thereby creates) a Clover store at dbDir,
 // creates the workspace collection, writes a single metadata document
-// containing the supplied targets, and closes the store cleanly. If
+// containing the supplied target, and closes the store cleanly. If
 // any step fails after the database is opened, the store is still
 // closed before the error is returned.
 func (r *WorkspaceRepository) CreateDatabase(_ context.Context, dbDir string, meta domain.WorkspaceMetadata) (retErr error) {
@@ -52,14 +52,8 @@ func (r *WorkspaceRepository) CreateDatabase(_ context.Context, dbDir string, me
 		return fmt.Errorf("create %q collection: %w", workspaceCollection, err)
 	}
 
-	// Store targets as a []string so Clover's JSON encoding is stable
-	// and adapter-layer reads don't need to know about domain types.
-	targets := make([]string, len(meta.Targets))
-	for i, t := range meta.Targets {
-		targets[i] = string(t)
-	}
 	doc := d.NewDocument()
-	doc.Set(fieldTargets, targets)
+	doc.Set(fieldTarget, string(meta.Target))
 
 	if _, err := db.InsertOne(workspaceCollection, doc); err != nil {
 		return fmt.Errorf("insert workspace metadata: %w", err)

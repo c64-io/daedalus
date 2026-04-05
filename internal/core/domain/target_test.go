@@ -2,85 +2,74 @@ package domain_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
 )
 
-func TestParseTargets(t *testing.T) {
+func TestParseTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		in   []string
-		want []domain.Target
+		in   string
+		want domain.Target
 	}{
-		{
-			name: "single go",
-			in:   []string{"go"},
-			want: []domain.Target{domain.TargetGo},
-		},
-		{
-			name: "single typescript",
-			in:   []string{"typescript"},
-			want: []domain.Target{domain.TargetTypeScript},
-		},
-		{
-			name: "both targets canonicalized",
-			in:   []string{"typescript", "go"},
-			want: []domain.Target{domain.TargetGo, domain.TargetTypeScript},
-		},
-		{
-			name: "deduplicates repeats",
-			in:   []string{"go", "go", "typescript", "go"},
-			want: []domain.Target{domain.TargetGo, domain.TargetTypeScript},
-		},
-		{
-			name: "case insensitive with whitespace",
-			in:   []string{" GO ", "TypeScript"},
-			want: []domain.Target{domain.TargetGo, domain.TargetTypeScript},
-		},
+		{name: "go", in: "go", want: domain.TargetGo},
+		{name: "typescript", in: "typescript", want: domain.TargetTypeScript},
+		{name: "uppercase go", in: "GO", want: domain.TargetGo},
+		{name: "mixed case typescript", in: "TypeScript", want: domain.TargetTypeScript},
+		{name: "trimmed whitespace", in: "  go  ", want: domain.TargetGo},
 	}
 
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := domain.ParseTargets(tc.in)
+			got, err := domain.ParseTarget(tc.in)
 			if err != nil {
-				t.Fatalf("ParseTargets(%v) returned unexpected error: %v", tc.in, err)
+				t.Fatalf("ParseTarget(%q) returned unexpected error: %v", tc.in, err)
 			}
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("ParseTargets(%v) = %v, want %v", tc.in, got, tc.want)
+			if got != tc.want {
+				t.Fatalf("ParseTarget(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestParseTargets_Errors(t *testing.T) {
+func TestParseTarget_UnknownTarget(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		in   []string
-	}{
-		{name: "empty string", in: []string{""}},
-		{name: "whitespace only", in: []string{"   "}},
-		{name: "unknown target", in: []string{"rust"}},
-		{name: "mixed known and unknown", in: []string{"go", "python"}},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
+	tests := []string{"", "   ", "rust", "python", "js"}
+	for _, in := range tests {
+		in := in
+		t.Run(in, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.ParseTargets(tc.in)
+			_, err := domain.ParseTarget(in)
 			if err == nil {
-				t.Fatalf("ParseTargets(%v) unexpectedly succeeded", tc.in)
+				t.Fatalf("ParseTarget(%q) unexpectedly succeeded", in)
 			}
 			if !errors.Is(err, domain.ErrUnknownTarget) {
-				t.Fatalf("ParseTargets(%v) error = %v, want wrapping ErrUnknownTarget", tc.in, err)
+				t.Fatalf("ParseTarget(%q) error = %v, want wrapping ErrUnknownTarget", in, err)
+			}
+		})
+	}
+}
+
+func TestParseTarget_MultipleTargetsRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{"go,typescript", "go,go", "typescript,go"}
+	for _, in := range tests {
+		in := in
+		t.Run(in, func(t *testing.T) {
+			t.Parallel()
+			_, err := domain.ParseTarget(in)
+			if err == nil {
+				t.Fatalf("ParseTarget(%q) unexpectedly succeeded", in)
+			}
+			if !errors.Is(err, domain.ErrMultipleTargets) {
+				t.Fatalf("ParseTarget(%q) error = %v, want wrapping ErrMultipleTargets", in, err)
 			}
 		})
 	}

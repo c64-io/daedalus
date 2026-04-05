@@ -91,17 +91,15 @@ identically across both.
 
 ### Target language is declared at `d7 init` and is immutable
 
-The target language (or languages — a project may declare both `go` and
-`typescript`, e.g. a Go backend paired with a TypeScript frontend) is set
-once, at workspace creation:
+A v1 workspace has **exactly one** target language. It is set once, at
+workspace creation:
 
 ```sh
 d7 init --lang go
 d7 init --lang typescript
-d7 init --lang go,typescript         # multi-target project
 ```
 
-Once chosen, **the target set is immutable for the life of the workspace**.
+Once chosen, **the target is immutable for the life of the workspace**.
 There is no `d7 target set` command, and this is deliberate:
 
 - The generation ledger becomes incoherent if half the Stories were
@@ -111,11 +109,18 @@ There is no `d7 target set` command, and this is deliberate:
 - A solo founder who truly picked wrong can re-`init` a fresh workspace
   faster than d7 could correctly migrate one. v1 takes the simple rule.
 
-The chosen target set is stored in a workspace metadata record in Clover,
+The chosen target is stored in a workspace metadata record in Clover,
 validated by every command that touches code generation or verification,
-and surfaced in `d7 status`. In multi-target workspaces, each **Story**
-declares which single target it belongs to; Features and Epics may
-aggregate across targets.
+and surfaced in `d7 status`.
+
+**Monorepo note.** Projects with both a Go backend and a TypeScript
+frontend are a real solo-founder shape and are explicitly *not* a v1
+concern. In v1, if you want d7 to cover both sides, run `d7 init` twice —
+once in each subdirectory — and live with two sibling `d7/` workspaces.
+Native multi-target workspaces (one `d7/` covering several target
+ecosystems, with per-Story target assignment) are a v2+ ambition; adding
+them later is a widening of the schema, not a breaking change, because
+v1 Stories all belong to the single declared target by construction.
 
 ## Scenarios → Gherkin
 
@@ -207,9 +212,8 @@ spirit as Claude Code itself:
 
 - **Target selection.** Accepts a Story, a Feature, or a whole Epic. The
   target language is *not* a per-invocation flag: it is read from the
-  workspace metadata set at `d7 init`. In multi-target workspaces, each
-  Story carries its own target, so `d7 generate story STORY-047`
-  unambiguously knows which runner and which ecosystem to produce for.
+  workspace metadata set at `d7 init`, which in v1 is always a single
+  target. `d7 generate story STORY-047` is unambiguous by construction.
 - **Context assembly.** Reads the relevant spec tree, cross-links, and
   Gherkin scenarios out of Clover. The happy path is **clean-slate
   generation** into a fresh target directory, but generation is also
@@ -398,6 +402,10 @@ This is a standing instruction, not a per-request ask.
 - Target languages beyond Go and TypeScript. Additional `ScenarioRunner`
   adapters (pytest-bdd, cucumber-jvm, etc.) are v2+ work and do not
   require any core changes when added.
-- Mutating a workspace's declared target set after `d7 init`. If the user
+- Multi-target workspaces (one `d7/` covering both a Go backend and a
+  TypeScript frontend). v1 workspaces are single-target; monorepo
+  founders run `d7 init` twice, once per subdirectory. Native
+  multi-target support is a v2+ schema widening.
+- Mutating a workspace's declared target after `d7 init`. If the user
   picked wrong, the answer in v1 is to re-`init` a fresh workspace.
 - Secret management beyond `ANTHROPIC_API_KEY` in the environment.

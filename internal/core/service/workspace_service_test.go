@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -67,19 +66,19 @@ func (f *fakeFS) MkdirAll(path string, perm fs.FileMode) error {
 
 type fakeFileInfo struct{ name string }
 
-func (f fakeFileInfo) Name() string       { return f.name }
-func (fakeFileInfo) Size() int64          { return 0 }
-func (fakeFileInfo) Mode() fs.FileMode    { return fs.ModeDir }
-func (fakeFileInfo) ModTime() time.Time   { return time.Time{} }
-func (fakeFileInfo) IsDir() bool          { return true }
-func (fakeFileInfo) Sys() any             { return nil }
+func (f fakeFileInfo) Name() string     { return f.name }
+func (fakeFileInfo) Size() int64        { return 0 }
+func (fakeFileInfo) Mode() fs.FileMode  { return fs.ModeDir }
+func (fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (fakeFileInfo) IsDir() bool        { return true }
+func (fakeFileInfo) Sys() any           { return nil }
 
 // fakeRepo captures the arguments CreateDatabase is called with so
 // tests can assert on them.
 type fakeRepo struct {
-	called  bool
-	dbDir   string
-	meta    domain.WorkspaceMetadata
+	called    bool
+	dbDir     string
+	meta      domain.WorkspaceMetadata
 	createErr error
 }
 
@@ -90,7 +89,7 @@ func (r *fakeRepo) CreateDatabase(_ context.Context, dbDir string, meta domain.W
 	return r.createErr
 }
 
-func TestInit_Success_SingleTarget(t *testing.T) {
+func TestInit_Success_Go(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/home/alice/proj")
@@ -98,8 +97,7 @@ func TestInit_Success_SingleTarget(t *testing.T) {
 	svc := service.NewWorkspaceService(fs, repo)
 
 	ws, err := svc.Init(context.Background(), port.InitRequest{
-		RootDir: "",
-		Targets: []domain.Target{domain.TargetGo},
+		Target: domain.TargetGo,
 	})
 	if err != nil {
 		t.Fatalf("Init returned unexpected error: %v", err)
@@ -114,7 +112,7 @@ func TestInit_Success_SingleTarget(t *testing.T) {
 		t.Errorf("ws.DBDir = %q, want %q", ws.DBDir, wantDB)
 	}
 	if _, ok := fs.created[wantDB]; !ok {
-		t.Errorf("expected MkdirAll(%q) to have been called; created=%v", wantDB, fs.created)
+		t.Errorf("expected MkdirAll(%q); created=%v", wantDB, fs.created)
 	}
 	if !repo.called {
 		t.Fatal("expected CreateDatabase to be called")
@@ -122,12 +120,12 @@ func TestInit_Success_SingleTarget(t *testing.T) {
 	if repo.dbDir != wantDB {
 		t.Errorf("repo.dbDir = %q, want %q", repo.dbDir, wantDB)
 	}
-	if !reflect.DeepEqual(repo.meta.Targets, []domain.Target{domain.TargetGo}) {
-		t.Errorf("repo.meta.Targets = %v, want [go]", repo.meta.Targets)
+	if repo.meta.Target != domain.TargetGo {
+		t.Errorf("repo.meta.Target = %q, want %q", repo.meta.Target, domain.TargetGo)
 	}
 }
 
-func TestInit_Success_MultiTarget_ExplicitRoot(t *testing.T) {
+func TestInit_Success_TypeScript_ExplicitRoot(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/anywhere")
@@ -136,7 +134,7 @@ func TestInit_Success_MultiTarget_ExplicitRoot(t *testing.T) {
 
 	ws, err := svc.Init(context.Background(), port.InitRequest{
 		RootDir: "/srv/app",
-		Targets: []domain.Target{domain.TargetGo, domain.TargetTypeScript},
+		Target:  domain.TargetTypeScript,
 	})
 	if err != nil {
 		t.Fatalf("Init returned unexpected error: %v", err)
@@ -144,19 +142,18 @@ func TestInit_Success_MultiTarget_ExplicitRoot(t *testing.T) {
 	if ws.RootDir != "/srv/app" {
 		t.Errorf("ws.RootDir = %q, want %q", ws.RootDir, "/srv/app")
 	}
-	want := []domain.Target{domain.TargetGo, domain.TargetTypeScript}
-	if !reflect.DeepEqual(repo.meta.Targets, want) {
-		t.Errorf("repo.meta.Targets = %v, want %v", repo.meta.Targets, want)
+	if repo.meta.Target != domain.TargetTypeScript {
+		t.Errorf("repo.meta.Target = %q, want %q", repo.meta.Target, domain.TargetTypeScript)
 	}
 }
 
-func TestInit_NoTargets(t *testing.T) {
+func TestInit_NoTarget(t *testing.T) {
 	t.Parallel()
 
 	svc := service.NewWorkspaceService(newFakeFS("/x"), &fakeRepo{})
 	_, err := svc.Init(context.Background(), port.InitRequest{RootDir: "/x"})
-	if !errors.Is(err, service.ErrNoTargets) {
-		t.Fatalf("Init err = %v, want ErrNoTargets", err)
+	if !errors.Is(err, service.ErrNoTarget) {
+		t.Fatalf("Init err = %v, want ErrNoTarget", err)
 	}
 }
 
@@ -169,7 +166,7 @@ func TestInit_WorkspaceAlreadyExists(t *testing.T) {
 	svc := service.NewWorkspaceService(fs, repo)
 
 	_, err := svc.Init(context.Background(), port.InitRequest{
-		Targets: []domain.Target{domain.TargetGo},
+		Target: domain.TargetGo,
 	})
 	if !errors.Is(err, service.ErrWorkspaceExists) {
 		t.Fatalf("Init err = %v, want ErrWorkspaceExists", err)

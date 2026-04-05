@@ -26,8 +26,8 @@ func NewWorkspace(rootDir string) *Workspace {
 // database at creation time. It is immutable for the life of the
 // workspace in v1 — there is no service-layer operation to mutate it.
 type WorkspaceMetadata struct {
-	// Targets is the set of code-generation and verification targets
-	// declared at `d7 init`. At least one target is required. The
-	// slice is canonically ordered (see ParseTargets).
-	Targets []Target
+	// Target is the single code-generation and verification target
+	// declared at `d7 init`. v1 workspaces are single-target;
+	// monorepo / multi-target support is a v2 ambition.
+	Target Target
 }
