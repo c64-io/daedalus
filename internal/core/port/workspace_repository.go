@@ -24,6 +24,15 @@ type WorkspaceRepository interface {
 	// contains no workspace record (which indicates either corruption
 	// or a partially-initialized workspace).
 	ReadMetadata(ctx context.Context, dbDir string) (domain.WorkspaceMetadata, error)
+
+	// SaveProjectDescription writes the project description content
+	// into the workspace database, replacing any existing content.
+	SaveProjectDescription(ctx context.Context, dbDir string, content string) error
+
+	// ReadProjectDescription reads the project description from the
+	// workspace database. Returns ErrProjectDescriptionNotFound when
+	// no description has been stored yet.
+	ReadProjectDescription(ctx context.Context, dbDir string) (string, error)
 }
 
 // ErrMetadataNotFound is returned by WorkspaceRepository.ReadMetadata
@@ -31,3 +40,7 @@ type WorkspaceRepository interface {
 // record. It is a driven-port sentinel so both the service layer and
 // tests can match on it.
 var ErrMetadataNotFound = errors.New("workspace metadata not found")
+
+// ErrProjectDescriptionNotFound is returned when no project
+// description has been stored in the workspace database.
+var ErrProjectDescriptionNotFound = errors.New("project description not found")

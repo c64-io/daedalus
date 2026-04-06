@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	cloveradapter "github.com/c64-io/daedalus/internal/adapter/driven/clover"
+	"github.com/c64-io/daedalus/internal/adapter/driven/editorexec"
 	"github.com/c64-io/daedalus/internal/adapter/driven/osfs"
 	"github.com/c64-io/daedalus/internal/adapter/driving/cli"
 	"github.com/c64-io/daedalus/internal/core/service"
@@ -22,11 +23,13 @@ func main() {
 	epicRepo := cloveradapter.NewEpicRepository()
 	historyRepo := cloveradapter.NewHistoryRepository()
 
+	editor := editorexec.New()
+
 	wsSvc := service.NewWorkspaceService(fs, wsRepo)
 	ideaSvc := service.NewIdeaService(fs, ideaRepo, historyRepo)
 	epicSvc := service.NewEpicService(fs, epicRepo, ideaRepo, historyRepo)
 
-	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc, ideaSvc, wsSvc, epicSvc, epicSvc, epicSvc)
+	root := cli.NewRootCmd(wsSvc, wsSvc, wsSvc, wsSvc, ideaSvc, ideaSvc, ideaSvc, epicSvc, epicSvc, epicSvc, editor)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

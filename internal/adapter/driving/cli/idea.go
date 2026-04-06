@@ -11,7 +11,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port"
 )
 
-func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.IdeaSetter) *cobra.Command {
+func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.IdeaSetter, editor port.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "idea",
 		Short: "Manage ideas — the top of the d7 hierarchy",
@@ -21,6 +21,7 @@ func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.Id
 	cmd.AddCommand(newIdeaListCmd(reader))
 	cmd.AddCommand(newIdeaShowCmd(reader))
 	cmd.AddCommand(newIdeaSetCmd(setter))
+	cmd.AddCommand(newIdeaEditCmd(reader, setter, editor))
 	return cmd
 }
 
@@ -165,4 +166,97 @@ func newIdeaSetCmd(setter port.IdeaSetter) *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "new description")
 
 	return cmd
+}
+
+func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.Editor) *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit <idea-id>",
+		Short: "Edit an idea in $EDITOR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.ToUpper(strings.TrimSpace(args[0]))
+			idea, err := reader.GetIdea(cmd.Context(), "", id)
+			if err != nil {
+				return err
+			}
+
+			fields := []domain.FrontMatterField{
+				{Key: "id", Value: idea.ID, ReadOnly: true},
+				{Key: "status", Value: string(idea.Status)},
+				{Key: "title", Value: idea.Title},
+				{Key: "created", Value: idea.CreatedAt.Format("2006-01-02"), ReadOnly: true},
+			}
+			initial := domain.FormatFrontMatter(fields, idea.Description)
+
+			var req port.SetIdeaRequest
+			_, err = editLoop(editor, initial, func(edited string) error {
+				cleaned := stripErrorLines(edited)
+				fm, body, parseErr := domain.ParseFrontMatter(cleaned)
+				if parseErr != nil {
+					return parseErr
+				}
+
+				req = port.SetIdeaRequest{ID: idea.ID}
+
+				// Warn about read-only fields.
+				if val, ok := fm["id"]; ok && val != idea.ID {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: id is read-only, ignoring change\n")
+				}
+				if val, ok := fm["created"]; ok && val != idea.CreatedAt.Format("2006-01-02") {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: created is read-only, ignoring change\n")
+				}
+
+				// Editable fields — only set if changed.
+				if val, ok := fm["status"]; ok && val != string(idea.Status) {
+					s, err := domain.ParseStatus(val)
+					if err != nil {
+						return err
+					}
+					req.Status = &s
+				}
+				if val, ok := fm["title"]; ok && val != idea.Title {
+					req.Title = &val
+				}
+				if body != idea.Description {
+					req.Description = &body
+				}
+
+				// Must have at least one change.
+				if req.Status == nil && req.Title == nil && req.Description == nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "no changes")
+					return nil
+				}
+
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
+			if req.Status == nil && req.Title == nil && req.Description == nil {
+				return nil
+			}
+
+			updated, err := setter.SetIdea(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
+			return nil
+		},
+	}
+}
+
+// stripErrorLines removes leading "# ERROR:" lines that editLoop
+// prepends on parse failures.
+func stripErrorLines(s string) string {
+	for strings.HasPrefix(s, "# ERROR:") {
+		if idx := strings.Index(s, "\n"); idx >= 0 {
+			s = s[idx+1:]
+		} else {
+			break
+		}
+	}
+	return s
 }

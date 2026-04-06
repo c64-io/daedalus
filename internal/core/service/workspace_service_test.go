@@ -101,6 +101,12 @@ type fakeRepo struct {
 	// ReadMetadata seeds.
 	readMeta domain.WorkspaceMetadata
 	readErr  error
+
+	// Project description.
+	description    string
+	descriptionSet bool
+	saveDescErr    error
+	readDescErr    error
 }
 
 func (r *fakeRepo) CreateDatabase(_ context.Context, dbDir string, meta domain.WorkspaceMetadata) error {
@@ -115,6 +121,25 @@ func (r *fakeRepo) ReadMetadata(_ context.Context, _ string) (domain.WorkspaceMe
 		return domain.WorkspaceMetadata{}, r.readErr
 	}
 	return r.readMeta, nil
+}
+
+func (r *fakeRepo) SaveProjectDescription(_ context.Context, _ string, content string) error {
+	if r.saveDescErr != nil {
+		return r.saveDescErr
+	}
+	r.description = content
+	r.descriptionSet = true
+	return nil
+}
+
+func (r *fakeRepo) ReadProjectDescription(_ context.Context, _ string) (string, error) {
+	if r.readDescErr != nil {
+		return "", r.readDescErr
+	}
+	if !r.descriptionSet {
+		return "", port.ErrProjectDescriptionNotFound
+	}
+	return r.description, nil
 }
 
 func TestInit_Success_Go(t *testing.T) {
@@ -271,7 +296,7 @@ func TestStatus_ReadMetadataError(t *testing.T) {
 	}
 }
 
-func TestInit_WritesProjectDescription(t *testing.T) {
+func TestInit_SavesProjectDescription(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/home/alice/proj")
@@ -283,46 +308,48 @@ func TestInit_WritesProjectDescription(t *testing.T) {
 		t.Fatalf("Init returned unexpected error: %v", err)
 	}
 
-	data, ok := fs.files["/home/alice/proj/d7/project.md"]
-	if !ok {
-		t.Fatal("expected project.md to be written during Init")
+	if !repo.descriptionSet {
+		t.Fatal("expected project description to be saved during Init")
 	}
-	if string(data) != domain.ProjectDescriptionTemplate {
-		t.Errorf("project.md content = %q, want template", string(data))
+	if repo.description != domain.ProjectDescriptionTemplate {
+		t.Errorf("description = %q, want template", repo.description)
 	}
 }
 
-func TestReadProjectDescription_Default(t *testing.T) {
+func TestReadWorkspaceDescription_Default(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/proj")
 	fs.existing["/proj/d7/.db"] = true
-	fs.files["/proj/d7/project.md"] = []byte(domain.ProjectDescriptionTemplate)
-	svc := service.NewWorkspaceService(fs, &fakeRepo{})
+	repo := &fakeRepo{
+		description:    domain.ProjectDescriptionTemplate,
+		descriptionSet: true,
+	}
+	svc := service.NewWorkspaceService(fs, repo)
 
-	pd, err := svc.ReadProjectDescription(context.Background(), "/proj")
+	pd, err := svc.ReadWorkspaceDescription(context.Background(), "/proj")
 	if err != nil {
-		t.Fatalf("ReadProjectDescription returned error: %v", err)
+		t.Fatalf("ReadWorkspaceDescription returned error: %v", err)
 	}
 	if !pd.IsDefault {
 		t.Error("expected IsDefault=true for template content")
 	}
-	if pd.Path != "/proj/d7/project.md" {
-		t.Errorf("pd.Path = %q, want %q", pd.Path, "/proj/d7/project.md")
-	}
 }
 
-func TestReadProjectDescription_Customized(t *testing.T) {
+func TestReadWorkspaceDescription_Customized(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/proj")
 	fs.existing["/proj/d7/.db"] = true
-	fs.files["/proj/d7/project.md"] = []byte("# My SaaS\nA billing platform.\n")
-	svc := service.NewWorkspaceService(fs, &fakeRepo{})
+	repo := &fakeRepo{
+		description:    "# My SaaS\nA billing platform.\n",
+		descriptionSet: true,
+	}
+	svc := service.NewWorkspaceService(fs, repo)
 
-	pd, err := svc.ReadProjectDescription(context.Background(), "/proj")
+	pd, err := svc.ReadWorkspaceDescription(context.Background(), "/proj")
 	if err != nil {
-		t.Fatalf("ReadProjectDescription returned error: %v", err)
+		t.Fatalf("ReadWorkspaceDescription returned error: %v", err)
 	}
 	if pd.IsDefault {
 		t.Error("expected IsDefault=false for customized content")
@@ -332,13 +359,33 @@ func TestReadProjectDescription_Customized(t *testing.T) {
 	}
 }
 
+func TestWriteWorkspaceDescription(t *testing.T) {
+	t.Parallel()
+
+	fs := newFakeFS("/proj")
+	fs.existing["/proj/d7/.db"] = true
+	repo := &fakeRepo{}
+	svc := service.NewWorkspaceService(fs, repo)
+
+	err := svc.WriteWorkspaceDescription(context.Background(), "/proj", "# My Product\n")
+	if err != nil {
+		t.Fatalf("WriteWorkspaceDescription returned error: %v", err)
+	}
+	if repo.description != "# My Product\n" {
+		t.Errorf("description = %q, want %q", repo.description, "# My Product\n")
+	}
+}
+
 func TestStatus_IncludesProjectDescription(t *testing.T) {
 	t.Parallel()
 
 	fs := newFakeFS("/proj")
 	fs.existing["/proj/d7/.db"] = true
-	fs.files["/proj/d7/project.md"] = []byte(domain.ProjectDescriptionTemplate)
-	repo := &fakeRepo{readMeta: domain.WorkspaceMetadata{Target: domain.TargetGo}}
+	repo := &fakeRepo{
+		readMeta:       domain.WorkspaceMetadata{Target: domain.TargetGo},
+		description:    domain.ProjectDescriptionTemplate,
+		descriptionSet: true,
+	}
 	svc := service.NewWorkspaceService(fs, repo)
 
 	st, err := svc.Status(context.Background(), "/proj")

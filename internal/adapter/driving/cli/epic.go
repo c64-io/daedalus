@@ -11,7 +11,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port"
 )
 
-func newEpicCmd(creator port.EpicCreator, reader port.EpicReader, setter port.EpicSetter, ideaReader port.IdeaReader) *cobra.Command {
+func newEpicCmd(creator port.EpicCreator, reader port.EpicReader, setter port.EpicSetter, ideaReader port.IdeaReader, editor port.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "epic",
 		Short: "Manage epics — major capabilities under an idea",
@@ -21,6 +21,7 @@ func newEpicCmd(creator port.EpicCreator, reader port.EpicReader, setter port.Ep
 	cmd.AddCommand(newEpicListCmd(reader))
 	cmd.AddCommand(newEpicShowCmd(reader, ideaReader))
 	cmd.AddCommand(newEpicSetCmd(setter))
+	cmd.AddCommand(newEpicEditCmd(reader, setter, editor))
 	return cmd
 }
 
@@ -246,4 +247,121 @@ func newEpicSetCmd(setter port.EpicSetter) *cobra.Command {
 	cmd.Flags().StringVar(&sizeRaw, "size", "", "new size ("+domain.SupportedSizes()+")")
 
 	return cmd
+}
+
+func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.Editor) *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit <epic-id>",
+		Short: "Edit an epic in $EDITOR",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.ToUpper(strings.TrimSpace(args[0]))
+			epic, err := reader.GetEpic(cmd.Context(), "", id)
+			if err != nil {
+				return err
+			}
+
+			priority := ""
+			if epic.Priority != "" {
+				priority = string(epic.Priority)
+			}
+			size := ""
+			if epic.Size != 0 {
+				size = fmt.Sprintf("%d", epic.Size)
+			}
+
+			fields := []domain.FrontMatterField{
+				{Key: "id", Value: epic.ID, ReadOnly: true},
+				{Key: "idea", Value: epic.IdeaID, ReadOnly: true},
+				{Key: "status", Value: string(epic.Status)},
+				{Key: "title", Value: epic.Title},
+				{Key: "priority", Value: priority},
+				{Key: "size", Value: size},
+				{Key: "created", Value: epic.CreatedAt.Format("2006-01-02"), ReadOnly: true},
+			}
+			initial := domain.FormatFrontMatter(fields, epic.Description)
+
+			var req port.SetEpicRequest
+			_, err = editLoop(editor, initial, func(edited string) error {
+				cleaned := stripErrorLines(edited)
+				fm, body, parseErr := domain.ParseFrontMatter(cleaned)
+				if parseErr != nil {
+					return parseErr
+				}
+
+				req = port.SetEpicRequest{ID: epic.ID}
+
+				// Warn about read-only fields.
+				if val, ok := fm["id"]; ok && val != epic.ID {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: id is read-only, ignoring change\n")
+				}
+				if val, ok := fm["idea"]; ok && val != epic.IdeaID {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: idea is read-only, ignoring change\n")
+				}
+				if val, ok := fm["created"]; ok && val != epic.CreatedAt.Format("2006-01-02") {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: created is read-only, ignoring change\n")
+				}
+
+				// Editable fields — only set if changed.
+				if val, ok := fm["status"]; ok && val != string(epic.Status) {
+					s, err := domain.ParseStatus(val)
+					if err != nil {
+						return err
+					}
+					req.Status = &s
+				}
+				if val, ok := fm["title"]; ok && val != epic.Title {
+					req.Title = &val
+				}
+				if val, ok := fm["priority"]; ok && val != priority {
+					if val == "" {
+						// Clear priority — but Priority is non-nullable in SetEpicRequest,
+						// so we skip if cleared to empty.
+					} else {
+						p, err := domain.ParsePriority(val)
+						if err != nil {
+							return err
+						}
+						req.Priority = &p
+					}
+				}
+				if val, ok := fm["size"]; ok && val != size {
+					if val == "" {
+						// Skip clearing size.
+					} else {
+						sz, err := domain.ParseSize(val)
+						if err != nil {
+							return err
+						}
+						req.Size = &sz
+					}
+				}
+				if body != epic.Description {
+					req.Description = &body
+				}
+
+				if req.Status == nil && req.Title == nil && req.Description == nil && req.Priority == nil && req.Size == nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "no changes")
+					return nil
+				}
+
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
+			if req.Status == nil && req.Title == nil && req.Description == nil && req.Priority == nil && req.Size == nil {
+				return nil
+			}
+
+			updated, err := setter.SetEpic(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
+			return nil
+		},
+	}
 }

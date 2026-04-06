@@ -15,8 +15,10 @@ import (
 // Collection and field names for the workspace metadata document.
 // These are the Clover adapter's concern, not the core's.
 const (
-	workspaceCollection = "workspace"
-	fieldTarget         = "target"
+	workspaceCollection    = "workspace"
+	descriptionCollection  = "workspace_description"
+	fieldTarget            = "target"
+	fieldContent           = "content"
 )
 
 // Compile-time assertion that WorkspaceRepository satisfies the driven port.
@@ -102,4 +104,65 @@ func (r *WorkspaceRepository) ReadMetadata(_ context.Context, dbDir string) (_ d
 	}
 
 	return domain.WorkspaceMetadata{Target: target}, nil
+}
+
+// SaveProjectDescription writes the project description content into
+// the workspace_description collection, replacing any existing doc.
+func (r *WorkspaceRepository) SaveProjectDescription(_ context.Context, dbDir string, content string) (retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	has, err := db.HasCollection(descriptionCollection)
+	if err != nil {
+		return fmt.Errorf("check %q collection: %w", descriptionCollection, err)
+	}
+	if !has {
+		if err := db.CreateCollection(descriptionCollection); err != nil {
+			return fmt.Errorf("create %q collection: %w", descriptionCollection, err)
+		}
+	}
+
+	// Delete any existing doc and insert the new one.
+	_ = db.Delete(q.NewQuery(descriptionCollection))
+
+	doc := d.NewDocument()
+	doc.Set(fieldContent, content)
+	if _, err := db.InsertOne(descriptionCollection, doc); err != nil {
+		return fmt.Errorf("insert project description: %w", err)
+	}
+
+	return nil
+}
+
+// ReadProjectDescription reads the project description from the
+// workspace_description collection. Returns ErrProjectDescriptionNotFound
+// when no description has been stored yet.
+func (r *WorkspaceRepository) ReadProjectDescription(_ context.Context, dbDir string) (_ string, retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return "", fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	has, err := db.HasCollection(descriptionCollection)
+	if err != nil {
+		return "", fmt.Errorf("check %q collection: %w", descriptionCollection, err)
+	}
+	if !has {
+		return "", fmt.Errorf("%w", port.ErrProjectDescriptionNotFound)
+	}
+
+	doc, err := db.FindFirst(q.NewQuery(descriptionCollection))
+	if err != nil {
+		return "", fmt.Errorf("find project description: %w", err)
+	}
+	if doc == nil {
+		return "", fmt.Errorf("%w", port.ErrProjectDescriptionNotFound)
+	}
+
+	content, _ := doc.Get(fieldContent).(string)
+	return content, nil
 }

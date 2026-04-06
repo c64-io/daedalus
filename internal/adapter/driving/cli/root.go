@@ -11,13 +11,15 @@ import (
 func NewRootCmd(
 	initializer port.WorkspaceInitializer,
 	statusReader port.WorkspaceStatusReader,
+	descReader port.WorkspaceDescriptionReader,
+	descWriter port.WorkspaceDescriptionWriter,
 	ideaCreator port.IdeaCreator,
 	ideaReader port.IdeaReader,
 	ideaSetter port.IdeaSetter,
-	projectDescReader port.ProjectDescriptionReader,
 	epicCreator port.EpicCreator,
 	epicReader port.EpicReader,
 	epicSetter port.EpicSetter,
+	editor port.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "d7",
@@ -28,9 +30,8 @@ func NewRootCmd(
 	}
 
 	root.AddCommand(newInitCmd(initializer))
-	root.AddCommand(newWorkspaceCmd(statusReader))
-	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter))
-	root.AddCommand(newProjectCmd(projectDescReader))
-	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader))
+	root.AddCommand(newWorkspaceCmd(statusReader, descReader, descWriter, editor))
+	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter, editor))
+	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader, editor))
 	return root
 }

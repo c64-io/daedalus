@@ -7,20 +7,18 @@ import "path/filepath"
 // lives in WorkspaceMetadata, which is persisted in the workspace's
 // database.
 type Workspace struct {
-	RootDir     string // directory in which `d7 init` was run
-	Dir         string // <RootDir>/d7
-	DBDir       string // <RootDir>/d7/.db
-	ProjectFile string // <RootDir>/d7/project.md
+	RootDir string // directory in which `d7 init` was run
+	Dir     string // <RootDir>/d7
+	DBDir   string // <RootDir>/d7/.db
 }
 
 // NewWorkspace builds a Workspace descriptor rooted at rootDir.
 func NewWorkspace(rootDir string) *Workspace {
 	dir := filepath.Join(rootDir, "d7")
 	return &Workspace{
-		RootDir:     rootDir,
-		Dir:         dir,
-		DBDir:       filepath.Join(dir, ".db"),
-		ProjectFile: filepath.Join(dir, "project.md"),
+		RootDir: rootDir,
+		Dir:     dir,
+		DBDir:   filepath.Join(dir, ".db"),
 	}
 }
 
@@ -44,11 +42,10 @@ const ProjectDescriptionTemplate = `# Project Description
 ## Constraints & non-goals
 `
 
-// ProjectDescription holds the content of a workspace's project.md
-// file along with metadata about whether it has been customized.
+// ProjectDescription holds the workspace's project description
+// content along with metadata about whether it has been customized.
 type ProjectDescription struct {
 	Content   string
-	Path      string
 	IsDefault bool // true when content matches the template exactly
 }
 

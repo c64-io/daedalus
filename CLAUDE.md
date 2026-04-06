@@ -277,19 +277,19 @@ internal/core/
   port/
     workspace_initializer.go                  # driving
     workspace_status_reader.go                # driving
-    project_description_reader.go             # driving
+    workspace_description.go                  # driving: read/write project description
     idea_creator.go, idea_reader.go           # driving
     epic_creator.go, epic_reader.go           # driving
-    workspace_repository.go                   # driven: storage
+    workspace_repository.go                   # driven: storage (incl. project description)
     idea_repository.go                        # driven: storage
     epic_repository.go                        # driven: storage
     filesystem.go                             # driven: disk side-effects
+    editor.go                                 # driven: $EDITOR
     (future) code_generator.go                # driving
     (future) verifier.go                      # driving: d7 verify use case
     (future) ai_assistant.go                  # driven: multi-turn agent over LLM
     (future) scenario_runner.go               # driven: run Gherkin, return structured results
     (future) git_worktree.go                  # driven: worktree create/commit/discard
-    (future) editor.go                        # driven: $EDITOR
     (future) clock.go                         # driven: time (audit trail)
   service/                                    # pure use-case implementations
 internal/adapter/
@@ -297,11 +297,11 @@ internal/adapter/
   driven/
     clover/                                   # Clover v2 implementation of storage ports
     osfs/                                     # os-backed FileSystem
+    editorexec/                               # $EDITOR launcher
     (future) anthropic/                       # Anthropic SDK impl of ai_assistant (agentic loop)
     (future) godog/                           # ScenarioRunner for Go targets
     (future) cucumberjs/                      # ScenarioRunner for TypeScript targets
     (future) gitworktree/                     # git worktree adapter for generation
-    (future) editorexec/                      # $EDITOR launcher
 ```
 
 ### Non-negotiable rules for contributors (and Claude)
@@ -338,18 +338,25 @@ internal/adapter/
 
 Implemented:
 
-- `d7 init [path] --lang <go|typescript>` creates `d7/.db/` and
-  `d7/project.md`, provisions an empty Clover store with immutable
-  target metadata. Errors if `d7/` already exists.
+- `d7 init [path] --lang <go|typescript>` creates `d7/.db/`,
+  provisions an empty Clover store with immutable target metadata and
+  a default project description in the database. Errors if `d7/`
+  already exists. No files are created outside `d7/.db/`.
 - `d7 workspace status` shows workspace dir, target, and project
   description state.
-- `d7 project show` prints the project description (`d7/project.md`);
+- `d7 workspace show` prints the project description from the database;
   hints on stderr if it is still the default template.
+- `d7 workspace edit` opens `$EDITOR` with a YAML front-matter header
+  (target, read-only) followed by the project description body. On save,
+  the description is updated in the database.
 - `d7 idea new --title "..." [--description "..."] [--expand]` creates
   an Idea in `draft` status with a stable IDEA-XXX ID.
 - `d7 idea list` / `d7 idea show <id>` for reading Ideas.
 - `d7 idea set <id> --status <status> [--title] [--description]`
   updates fields with state-machine validation and history tracking.
+- `d7 idea edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  status, title, created) plus the description body. Changed fields
+  are applied via `SetIdea`.
 - `d7 epic new --idea IDEA-XXX --title "..." [--description] [--priority] [--size] [--expand]`
   creates an Epic under a parent Idea. The parent must be at least
   `refined`; draft and archived Ideas are rejected.
@@ -357,15 +364,22 @@ Implemented:
 - `d7 epic show <id>` shows epic details including parent Idea info.
 - `d7 epic set <id> --status <status> [--title] [--description] [--priority] [--size]`
   updates fields with state-machine validation and history tracking.
+- `d7 epic edit <id>` opens `$EDITOR` with YAML front-matter (id, idea,
+  status, title, priority, size, created) plus the description body.
+  Changed fields are applied via `SetEpic`.
+- Editor-based editing uses a shared edit loop: if YAML parsing fails,
+  the editor re-opens with the error prepended as a comment.
 - Domain types: `Idea`, `Epic`, `Status` (with transition state machine
   including `blocked`), `Target`, `Priority`, `Size`, `HistoryEntry`,
-  `ProjectDescription`.
+  `ProjectDescription`, `FrontMatterField`.
 - Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
-  `WorkspaceRepository`, `FileSystem`, `ProjectDescriptionReader`,
+  `WorkspaceDescriptionReader`, `WorkspaceDescriptionWriter`,
+  `WorkspaceRepository`, `FileSystem`, `Editor`,
   `IdeaCreator`, `IdeaReader`, `IdeaSetter`, `IdeaRepository`,
   `EpicCreator`, `EpicReader`, `EpicSetter`, `EpicRepository`,
   `HistoryRepository`.
-- Adapters: `clover` (storage), `osfs` (filesystem), `cli` (cobra).
+- Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
+  (`$EDITOR` launcher), `cli` (cobra).
 
 Not yet implemented: features, stories, specs, scenarios, the sparse
 graph, Gherkin export, AI assist, the agentic generator, worktree
@@ -386,12 +400,18 @@ Manual smoke test:
 
 ```sh
 go build -o /tmp/d7 ./cmd/d7
-mkdir /tmp/d7-test && cd /tmp/d7-test
+rm -rf /tmp/d7-test && mkdir /tmp/d7-test && cd /tmp/d7-test
 /tmp/d7 init --lang go
 /tmp/d7 workspace status
+/tmp/d7 workspace show
+EDITOR=cat /tmp/d7 workspace edit
 /tmp/d7 idea new --title "My SaaS"
 /tmp/d7 idea list
 /tmp/d7 idea show IDEA-001
+/tmp/d7 idea set IDEA-001 --status refined
+EDITOR=cat /tmp/d7 idea edit IDEA-001
+/tmp/d7 epic new --idea IDEA-001 --title "Billing"
+EDITOR=cat /tmp/d7 epic edit EPIC-001
 ```
 
 ## Working in this repo (for Claude Code sessions)
