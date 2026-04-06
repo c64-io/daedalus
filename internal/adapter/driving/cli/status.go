@@ -27,6 +27,15 @@ func newStatusCmd(reader port.WorkspaceStatusReader) *cobra.Command {
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "workspace: %s\n", st.Workspace.Dir)
 			fmt.Fprintf(out, "target:    %s\n", st.Metadata.Target)
+
+			if pd := st.ProjectDescription; pd != nil {
+				if pd.IsDefault {
+					fmt.Fprintf(out, "project:   %s (default template — edit to describe your product)\n", pd.Path)
+				} else {
+					fmt.Fprintf(out, "project:   %s (customized)\n", pd.Path)
+				}
+			}
+
 			return nil
 		},
 	}

@@ -19,3 +19,5 @@ func (FileSystem) Stat(path string) (fs.FileInfo, error)   { return os.Stat(path
 func (FileSystem) MkdirAll(path string, perm fs.FileMode) error {
 	return os.MkdirAll(path, perm)
 }
+func (FileSystem) ReadFile(path string) ([]byte, error)                      { return os.ReadFile(path) }
+func (FileSystem) WriteFile(path string, data []byte, perm fs.FileMode) error { return os.WriteFile(path, data, perm) }

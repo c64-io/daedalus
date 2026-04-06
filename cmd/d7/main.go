@@ -22,7 +22,7 @@ func main() {
 	wsSvc := service.NewWorkspaceService(fs, wsRepo)
 	ideaSvc := service.NewIdeaService(fs, ideaRepo)
 
-	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc)
+	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc, wsSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

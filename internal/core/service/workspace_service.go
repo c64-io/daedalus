@@ -23,11 +23,12 @@ var ErrNoTarget = errors.New("a target must be declared")
 // the resolved location.
 var ErrWorkspaceNotFound = errors.New("d7 workspace not found")
 
-// Compile-time assertions that WorkspaceService satisfies both
+// Compile-time assertions that WorkspaceService satisfies the
 // driving ports it implements.
 var (
-	_ port.WorkspaceInitializer  = (*WorkspaceService)(nil)
-	_ port.WorkspaceStatusReader = (*WorkspaceService)(nil)
+	_ port.WorkspaceInitializer        = (*WorkspaceService)(nil)
+	_ port.WorkspaceStatusReader       = (*WorkspaceService)(nil)
+	_ port.ProjectDescriptionReader    = (*WorkspaceService)(nil)
 )
 
 // WorkspaceService implements the WorkspaceInitializer and
@@ -72,6 +73,10 @@ func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*dom
 		return nil, fmt.Errorf("create database: %w", err)
 	}
 
+	if err := s.fs.WriteFile(ws.ProjectFile, []byte(domain.ProjectDescriptionTemplate), 0o644); err != nil {
+		return nil, fmt.Errorf("write project description: %w", err)
+	}
+
 	return ws, nil
 }
 
@@ -89,5 +94,49 @@ func (s *WorkspaceService) Status(ctx context.Context, rootDir string) (*domain.
 		return nil, fmt.Errorf("read workspace metadata: %w", err)
 	}
 
-	return &domain.WorkspaceStatus{Workspace: ws, Metadata: meta}, nil
+	pd := s.readProjectFile(ws)
+
+	return &domain.WorkspaceStatus{
+		Workspace:          ws,
+		Metadata:           meta,
+		ProjectDescription: pd,
+	}, nil
+}
+
+// ReadProjectDescription reads the workspace's project.md file and
+// returns its content along with whether it is still the default
+// template.
+func (s *WorkspaceService) ReadProjectDescription(_ context.Context, rootDir string) (*domain.ProjectDescription, error) {
+	ws, err := requireWorkspace(s.fs, rootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := s.fs.ReadFile(ws.ProjectFile)
+	if err != nil {
+		return nil, fmt.Errorf("read project description: %w", err)
+	}
+
+	content := string(data)
+	return &domain.ProjectDescription{
+		Content:   content,
+		Path:      ws.ProjectFile,
+		IsDefault: content == domain.ProjectDescriptionTemplate,
+	}, nil
+}
+
+// readProjectFile is a best-effort helper used by Status. If the file
+// cannot be read (e.g. deleted), it returns nil rather than failing
+// the entire status call.
+func (s *WorkspaceService) readProjectFile(ws *domain.Workspace) *domain.ProjectDescription {
+	data, err := s.fs.ReadFile(ws.ProjectFile)
+	if err != nil {
+		return nil
+	}
+	content := string(data)
+	return &domain.ProjectDescription{
+		Content:   content,
+		Path:      ws.ProjectFile,
+		IsDefault: content == domain.ProjectDescriptionTemplate,
+	}
 }
