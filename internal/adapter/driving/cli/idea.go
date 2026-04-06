@@ -188,7 +188,7 @@ func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.
 			}
 			initial := domain.FormatFrontMatter(fields, idea.Description)
 
-			var req port.SetIdeaRequest
+			var updated *domain.Idea
 			_, err = editLoop(editor, initial, func(edited string) error {
 				cleaned := stripErrorLines(edited)
 				fm, body, parseErr := domain.ParseFrontMatter(cleaned)
@@ -196,7 +196,7 @@ func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.
 					return parseErr
 				}
 
-				req = port.SetIdeaRequest{ID: idea.ID}
+				req := port.SetIdeaRequest{ID: idea.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != idea.ID {
@@ -221,28 +221,29 @@ func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.
 					req.Description = &body
 				}
 
-				// Must have at least one change.
+				// No changes — nothing to do.
 				if req.Status == nil && req.Title == nil && req.Description == nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "no changes")
 					return nil
 				}
 
+				// Apply changes — validation errors (e.g. invalid status
+				// transition) re-open the editor with the error shown.
+				result, err := setter.SetIdea(cmd.Context(), req)
+				if err != nil {
+					return err
+				}
+				updated = result
 				return nil
 			})
 			if err != nil {
 				return err
 			}
 
-			if req.Status == nil && req.Title == nil && req.Description == nil {
-				return nil
+			if updated == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "no changes")
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
 			}
-
-			updated, err := setter.SetIdea(cmd.Context(), req)
-			if err != nil {
-				return err
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
 			return nil
 		},
 	}

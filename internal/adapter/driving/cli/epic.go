@@ -281,7 +281,7 @@ func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.
 			}
 			initial := domain.FormatFrontMatter(fields, epic.Description)
 
-			var req port.SetEpicRequest
+			var updated *domain.Epic
 			_, err = editLoop(editor, initial, func(edited string) error {
 				cleaned := stripErrorLines(edited)
 				fm, body, parseErr := domain.ParseFrontMatter(cleaned)
@@ -289,7 +289,7 @@ func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.
 					return parseErr
 				}
 
-				req = port.SetEpicRequest{ID: epic.ID}
+				req := port.SetEpicRequest{ID: epic.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != epic.ID {
@@ -315,8 +315,7 @@ func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.
 				}
 				if val, ok := fm["priority"]; ok && val != priority {
 					if val == "" {
-						// Clear priority — but Priority is non-nullable in SetEpicRequest,
-						// so we skip if cleared to empty.
+						// Skip clearing priority.
 					} else {
 						p, err := domain.ParsePriority(val)
 						if err != nil {
@@ -340,27 +339,29 @@ func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.
 					req.Description = &body
 				}
 
+				// No changes — nothing to do.
 				if req.Status == nil && req.Title == nil && req.Description == nil && req.Priority == nil && req.Size == nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "no changes")
 					return nil
 				}
 
+				// Apply changes — validation errors (e.g. invalid status
+				// transition) re-open the editor with the error shown.
+				result, err := setter.SetEpic(cmd.Context(), req)
+				if err != nil {
+					return err
+				}
+				updated = result
 				return nil
 			})
 			if err != nil {
 				return err
 			}
 
-			if req.Status == nil && req.Title == nil && req.Description == nil && req.Priority == nil && req.Size == nil {
-				return nil
+			if updated == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "no changes")
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
 			}
-
-			updated, err := setter.SetEpic(cmd.Context(), req)
-			if err != nil {
-				return err
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", updated.ID, updated.Status)
 			return nil
 		},
 	}
