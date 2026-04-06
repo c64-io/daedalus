@@ -19,6 +19,7 @@ const (
 	StatusReview     Status = "review"
 	StatusDone       Status = "done"
 	StatusArchived   Status = "archived"
+	StatusBlocked    Status = "blocked"
 )
 
 // validTransitions defines which status transitions are allowed. The
@@ -26,20 +27,21 @@ const (
 // transition to. This is the single source of truth for the lifecycle
 // state machine.
 var validTransitions = map[Status]map[Status]bool{
-	StatusDraft:      {StatusRefined: true, StatusArchived: true},
-	StatusRefined:    {StatusReady: true, StatusDraft: true, StatusArchived: true},
-	StatusReady:      {StatusInProgress: true, StatusRefined: true, StatusArchived: true},
-	StatusInProgress: {StatusReview: true, StatusReady: true, StatusArchived: true},
-	StatusReview:     {StatusDone: true, StatusInProgress: true, StatusArchived: true},
+	StatusDraft:      {StatusRefined: true, StatusArchived: true, StatusBlocked: true},
+	StatusRefined:    {StatusReady: true, StatusDraft: true, StatusArchived: true, StatusBlocked: true},
+	StatusReady:      {StatusInProgress: true, StatusRefined: true, StatusArchived: true, StatusBlocked: true},
+	StatusInProgress: {StatusReview: true, StatusReady: true, StatusArchived: true, StatusBlocked: true},
+	StatusReview:     {StatusDone: true, StatusInProgress: true, StatusArchived: true, StatusBlocked: true},
 	StatusDone:       {StatusArchived: true},
 	StatusArchived:   {StatusDraft: true},
+	StatusBlocked:    {StatusDraft: true, StatusRefined: true, StatusReady: true, StatusInProgress: true, StatusReview: true, StatusArchived: true},
 }
 
 // knownStatuses indexes the valid Status values for O(1) lookup.
 var knownStatuses = map[Status]bool{
 	StatusDraft: true, StatusRefined: true, StatusReady: true,
 	StatusInProgress: true, StatusReview: true, StatusDone: true,
-	StatusArchived: true,
+	StatusArchived: true, StatusBlocked: true,
 }
 
 // ErrInvalidTransition is returned when a status transition is not

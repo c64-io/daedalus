@@ -53,8 +53,10 @@ Rules:
   `SCEN-114`. Per-type monotonic counters stored in Clover. IDs are stable;
   titles are editable.
 - **Full-agile lifecycle.** Every item carries a status:
-  `draft → refined → ready → in-progress → review → done → archived`,
-  plus an independent `blocked` flag. Transitions are validated by the core.
+  `draft → refined → ready → in-progress → review → done → archived → blocked`.
+  `blocked` is a full status (not a separate flag) — any active status
+  can transition to `blocked`, and `blocked` can return to any active
+  status. Transitions are validated by the core's state machine.
 - **Priority and size on work items (Epic and below).** Priority is an
   enum: `low | medium | high | critical`. Size is a Fibonacci point
   value (`1, 2, 3, 5, 8, 13, 21`) — chosen over t-shirts because it
@@ -339,31 +341,37 @@ Implemented:
 - `d7 init [path] --lang <go|typescript>` creates `d7/.db/` and
   `d7/project.md`, provisions an empty Clover store with immutable
   target metadata. Errors if `d7/` already exists.
-- `d7 status` shows workspace dir, target, and project description state.
+- `d7 workspace status` shows workspace dir, target, and project
+  description state.
 - `d7 project show` prints the project description (`d7/project.md`);
   hints on stderr if it is still the default template.
 - `d7 idea new --title "..." [--description "..."] [--expand]` creates
   an Idea in `draft` status with a stable IDEA-XXX ID.
 - `d7 idea list` / `d7 idea show <id>` for reading Ideas.
+- `d7 idea set <id> --status <status> [--title] [--description]`
+  updates fields with state-machine validation and history tracking.
 - `d7 epic new --idea IDEA-XXX --title "..." [--description] [--priority] [--size] [--expand]`
   creates an Epic under a parent Idea. The parent must be at least
   `refined`; draft and archived Ideas are rejected.
 - `d7 epic list [--idea IDEA-XXX]` lists all epics or filters by parent.
 - `d7 epic show <id>` shows epic details including parent Idea info.
-- Domain types: `Idea`, `Epic`, `Status` (with transition state machine),
-  `Target`, `Priority`, `Size`, `HistoryEntry`, `ProjectDescription`.
+- `d7 epic set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- Domain types: `Idea`, `Epic`, `Status` (with transition state machine
+  including `blocked`), `Target`, `Priority`, `Size`, `HistoryEntry`,
+  `ProjectDescription`.
 - Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
   `WorkspaceRepository`, `FileSystem`, `ProjectDescriptionReader`,
-  `IdeaCreator`, `IdeaReader`, `IdeaRepository`,
-  `EpicCreator`, `EpicReader`, `EpicRepository`.
+  `IdeaCreator`, `IdeaReader`, `IdeaSetter`, `IdeaRepository`,
+  `EpicCreator`, `EpicReader`, `EpicSetter`, `EpicRepository`,
+  `HistoryRepository`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `cli` (cobra).
 
-Not yet implemented: features, stories, specs, scenarios, status
-transitions, history tracking on mutations, the sparse graph,
-Gherkin export, AI assist, the agentic generator, worktree isolation,
-regeneration, the ScenarioRunner port, and the verify loop. All are
-planned surface area and should be built incrementally, each behind
-its own port, each with the same discipline.
+Not yet implemented: features, stories, specs, scenarios, the sparse
+graph, Gherkin export, AI assist, the agentic generator, worktree
+isolation, regeneration, the ScenarioRunner port, and the verify loop.
+All are planned surface area and should be built incrementally, each
+behind its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -380,7 +388,7 @@ Manual smoke test:
 go build -o /tmp/d7 ./cmd/d7
 mkdir /tmp/d7-test && cd /tmp/d7-test
 /tmp/d7 init --lang go
-/tmp/d7 status
+/tmp/d7 workspace status
 /tmp/d7 idea new --title "My SaaS"
 /tmp/d7 idea list
 /tmp/d7 idea show IDEA-001

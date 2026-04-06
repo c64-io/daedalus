@@ -27,6 +27,10 @@ type IdeaRepository interface {
 
 	// ListIdeas returns all Ideas in creation order.
 	ListIdeas(ctx context.Context, dbDir string) ([]domain.Idea, error)
+
+	// UpdateIdea replaces the stored Idea identified by idea.ID with
+	// the provided values. Returns ErrIdeaNotFound if it does not exist.
+	UpdateIdea(ctx context.Context, dbDir string, idea domain.Idea) error
 }
 
 // ErrIdeaNotFound is returned by IdeaRepository.GetIdea when the

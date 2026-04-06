@@ -22,7 +22,6 @@ const (
 	fieldTitle       = "title"
 	fieldDescription = "description"
 	fieldStatus      = "status"
-	fieldBlocked     = "blocked"
 	fieldCreatedAt   = "created_at"
 	fieldCounterName = "name"
 	fieldCounterVal  = "value"
@@ -104,7 +103,6 @@ func (r *IdeaRepository) SaveIdea(_ context.Context, dbDir string, idea domain.I
 	doc.Set(fieldTitle, idea.Title)
 	doc.Set(fieldDescription, idea.Description)
 	doc.Set(fieldStatus, string(idea.Status))
-	doc.Set(fieldBlocked, idea.Blocked)
 	doc.Set(fieldCreatedAt, idea.CreatedAt.Format(time.RFC3339))
 
 	if _, err := db.InsertOne(ideasCollection, doc); err != nil {
@@ -178,6 +176,30 @@ func (r *IdeaRepository) ListIdeas(_ context.Context, dbDir string) (_ []domain.
 	return ideas, nil
 }
 
+// UpdateIdea replaces an existing Idea by its ID.
+func (r *IdeaRepository) UpdateIdea(_ context.Context, dbDir string, idea domain.Idea) (retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	doc, err := db.FindFirst(q.NewQuery(ideasCollection).Where(q.Field(fieldID).Eq(idea.ID)))
+	if err != nil {
+		return fmt.Errorf("find idea %s: %w", idea.ID, err)
+	}
+	if doc == nil {
+		return fmt.Errorf("%w: %s", port.ErrIdeaNotFound, idea.ID)
+	}
+
+	return db.UpdateById(ideasCollection, doc.ObjectId(), func(doc *d.Document) *d.Document {
+		doc.Set(fieldTitle, idea.Title)
+		doc.Set(fieldDescription, idea.Description)
+		doc.Set(fieldStatus, string(idea.Status))
+		return doc
+	})
+}
+
 // --- helpers ---
 
 // docToIdea converts a Clover document back into a domain.Idea.
@@ -186,7 +208,6 @@ func docToIdea(doc *d.Document) (*domain.Idea, error) {
 	title, _ := doc.Get(fieldTitle).(string)
 	desc, _ := doc.Get(fieldDescription).(string)
 	statusRaw, _ := doc.Get(fieldStatus).(string)
-	blocked, _ := doc.Get(fieldBlocked).(bool)
 	createdRaw, _ := doc.Get(fieldCreatedAt).(string)
 
 	status, err := domain.ParseStatus(statusRaw)
@@ -204,7 +225,6 @@ func docToIdea(doc *d.Document) (*domain.Idea, error) {
 		Title:       title,
 		Description: desc,
 		Status:      status,
-		Blocked:     blocked,
 		CreatedAt:   createdAt,
 	}, nil
 }

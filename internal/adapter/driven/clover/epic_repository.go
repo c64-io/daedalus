@@ -95,7 +95,6 @@ func (r *EpicRepository) SaveEpic(_ context.Context, dbDir string, epic domain.E
 	doc.Set(fieldTitle, epic.Title)
 	doc.Set(fieldDescription, epic.Description)
 	doc.Set(fieldStatus, string(epic.Status))
-	doc.Set(fieldBlocked, epic.Blocked)
 	doc.Set(fieldPriority, string(epic.Priority))
 	doc.Set(fieldSize, int(epic.Size))
 	doc.Set(fieldCreatedAt, epic.CreatedAt.Format(time.RFC3339))
@@ -177,6 +176,32 @@ func (r *EpicRepository) ListEpics(_ context.Context, dbDir string, ideaID strin
 	return epics, nil
 }
 
+// UpdateEpic replaces an existing Epic by its ID.
+func (r *EpicRepository) UpdateEpic(_ context.Context, dbDir string, epic domain.Epic) (retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	doc, err := db.FindFirst(q.NewQuery(epicsCollection).Where(q.Field(fieldID).Eq(epic.ID)))
+	if err != nil {
+		return fmt.Errorf("find epic %s: %w", epic.ID, err)
+	}
+	if doc == nil {
+		return fmt.Errorf("%w: %s", port.ErrEpicNotFound, epic.ID)
+	}
+
+	return db.UpdateById(epicsCollection, doc.ObjectId(), func(doc *d.Document) *d.Document {
+		doc.Set(fieldTitle, epic.Title)
+		doc.Set(fieldDescription, epic.Description)
+		doc.Set(fieldStatus, string(epic.Status))
+		doc.Set(fieldPriority, string(epic.Priority))
+		doc.Set(fieldSize, int(epic.Size))
+		return doc
+	})
+}
+
 // docToEpic converts a Clover document back into a domain.Epic.
 func docToEpic(doc *d.Document) (*domain.Epic, error) {
 	id, _ := doc.Get(fieldID).(string)
@@ -184,7 +209,6 @@ func docToEpic(doc *d.Document) (*domain.Epic, error) {
 	title, _ := doc.Get(fieldTitle).(string)
 	desc, _ := doc.Get(fieldDescription).(string)
 	statusRaw, _ := doc.Get(fieldStatus).(string)
-	blocked, _ := doc.Get(fieldBlocked).(bool)
 	priorityRaw, _ := doc.Get(fieldPriority).(string)
 	sizeRaw := toInt(doc.Get(fieldSize))
 	createdRaw, _ := doc.Get(fieldCreatedAt).(string)
@@ -213,7 +237,6 @@ func docToEpic(doc *d.Document) (*domain.Epic, error) {
 		Title:       title,
 		Description: desc,
 		Status:      status,
-		Blocked:     blocked,
 		Priority:    priority,
 		Size:        domain.Size(sizeRaw),
 		CreatedAt:   createdAt,

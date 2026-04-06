@@ -31,18 +31,21 @@ var minIdeaStatusForEpic = map[domain.Status]bool{
 var (
 	_ port.EpicCreator = (*EpicService)(nil)
 	_ port.EpicReader  = (*EpicService)(nil)
+	_ port.EpicSetter  = (*EpicService)(nil)
 )
 
-// EpicService implements the EpicCreator and EpicReader use cases.
+// EpicService implements the EpicCreator, EpicReader, and EpicSetter
+// use cases.
 type EpicService struct {
 	fs       port.FileSystem
 	epicRepo port.EpicRepository
 	ideaRepo port.IdeaRepository
+	history  port.HistoryRepository
 }
 
 // NewEpicService wires the service with its driven dependencies.
-func NewEpicService(fs port.FileSystem, epicRepo port.EpicRepository, ideaRepo port.IdeaRepository) *EpicService {
-	return &EpicService{fs: fs, epicRepo: epicRepo, ideaRepo: ideaRepo}
+func NewEpicService(fs port.FileSystem, epicRepo port.EpicRepository, ideaRepo port.IdeaRepository, history port.HistoryRepository) *EpicService {
+	return &EpicService{fs: fs, epicRepo: epicRepo, ideaRepo: ideaRepo, history: history}
 }
 
 // CreateEpic validates the request, checks the parent Idea exists and
@@ -118,4 +121,94 @@ func (s *EpicService) ListEpics(ctx context.Context, rootDir string, ideaID stri
 		return nil, fmt.Errorf("list epics: %w", err)
 	}
 	return epics, nil
+}
+
+// SetEpic applies the requested field changes to an existing Epic,
+// validates status transitions, records history entries, and persists.
+func (s *EpicService) SetEpic(ctx context.Context, req port.SetEpicRequest) (*domain.Epic, error) {
+	if req.ID == "" {
+		return nil, ErrEpicTitleRequired
+	}
+	if req.Status == nil && req.Title == nil && req.Description == nil && req.Priority == nil && req.Size == nil {
+		return nil, ErrNoFieldsToSet
+	}
+
+	ws, err := requireWorkspace(s.fs, req.RootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, req.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get epic: %w", err)
+	}
+
+	now := time.Now()
+	var entries []domain.HistoryEntry
+
+	if req.Status != nil && *req.Status != epic.Status {
+		newStatus, err := epic.Status.Transition(*req.Status)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, domain.HistoryEntry{
+			EntityID: epic.ID, Field: "status",
+			OldValue: string(epic.Status), NewValue: string(newStatus),
+			Timestamp: now,
+		})
+		epic.Status = newStatus
+	}
+
+	if req.Title != nil && *req.Title != epic.Title {
+		if *req.Title == "" {
+			return nil, ErrEpicTitleRequired
+		}
+		entries = append(entries, domain.HistoryEntry{
+			EntityID: epic.ID, Field: "title",
+			OldValue: epic.Title, NewValue: *req.Title,
+			Timestamp: now,
+		})
+		epic.Title = *req.Title
+	}
+
+	if req.Description != nil && *req.Description != epic.Description {
+		entries = append(entries, domain.HistoryEntry{
+			EntityID: epic.ID, Field: "description",
+			OldValue: epic.Description, NewValue: *req.Description,
+			Timestamp: now,
+		})
+		epic.Description = *req.Description
+	}
+
+	if req.Priority != nil && *req.Priority != epic.Priority {
+		entries = append(entries, domain.HistoryEntry{
+			EntityID: epic.ID, Field: "priority",
+			OldValue: string(epic.Priority), NewValue: string(*req.Priority),
+			Timestamp: now,
+		})
+		epic.Priority = *req.Priority
+	}
+
+	if req.Size != nil && *req.Size != epic.Size {
+		entries = append(entries, domain.HistoryEntry{
+			EntityID: epic.ID, Field: "size",
+			OldValue: fmt.Sprintf("%d", epic.Size), NewValue: fmt.Sprintf("%d", *req.Size),
+			Timestamp: now,
+		})
+		epic.Size = *req.Size
+	}
+
+	if len(entries) == 0 {
+		return epic, nil
+	}
+
+	if err := s.epicRepo.UpdateEpic(ctx, ws.DBDir, *epic); err != nil {
+		return nil, fmt.Errorf("update epic: %w", err)
+	}
+
+	if err := s.history.AppendHistory(ctx, ws.DBDir, entries); err != nil {
+		return nil, fmt.Errorf("record history: %w", err)
+	}
+
+	return epic, nil
 }

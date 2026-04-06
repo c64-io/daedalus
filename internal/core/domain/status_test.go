@@ -30,6 +30,18 @@ func TestStatus_ValidTransitions(t *testing.T) {
 		{domain.StatusReady, domain.StatusArchived},
 		{domain.StatusInProgress, domain.StatusArchived},
 		{domain.StatusReview, domain.StatusArchived},
+		// blocked transitions
+		{domain.StatusDraft, domain.StatusBlocked},
+		{domain.StatusRefined, domain.StatusBlocked},
+		{domain.StatusReady, domain.StatusBlocked},
+		{domain.StatusInProgress, domain.StatusBlocked},
+		{domain.StatusReview, domain.StatusBlocked},
+		{domain.StatusBlocked, domain.StatusDraft},
+		{domain.StatusBlocked, domain.StatusRefined},
+		{domain.StatusBlocked, domain.StatusReady},
+		{domain.StatusBlocked, domain.StatusInProgress},
+		{domain.StatusBlocked, domain.StatusReview},
+		{domain.StatusBlocked, domain.StatusArchived},
 	}
 
 	for _, tc := range valid {
@@ -59,6 +71,8 @@ func TestStatus_InvalidTransitions(t *testing.T) {
 		{domain.StatusDone, domain.StatusDraft},
 		{domain.StatusDone, domain.StatusReview},
 		{domain.StatusArchived, domain.StatusRefined},
+		{domain.StatusDone, domain.StatusBlocked},
+		{domain.StatusBlocked, domain.StatusDone},
 	}
 
 	for _, tc := range invalid {

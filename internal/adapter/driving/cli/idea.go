@@ -7,10 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/c64-io/daedalus/internal/core/domain"
 	"github.com/c64-io/daedalus/internal/core/port"
 )
 
-func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader) *cobra.Command {
+func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.IdeaSetter) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "idea",
 		Short: "Manage ideas — the top of the d7 hierarchy",
@@ -19,6 +20,7 @@ func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader) *cobra.Command
 	cmd.AddCommand(newIdeaNewCmd(creator))
 	cmd.AddCommand(newIdeaListCmd(reader))
 	cmd.AddCommand(newIdeaShowCmd(reader))
+	cmd.AddCommand(newIdeaSetCmd(setter))
 	return cmd
 }
 
@@ -82,11 +84,7 @@ func newIdeaListCmd(reader port.IdeaReader) *cobra.Command {
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "ID\tSTATUS\tTITLE")
 			for _, idea := range ideas {
-				status := string(idea.Status)
-				if idea.Blocked {
-					status += " [blocked]"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", idea.ID, status, idea.Title)
+				fmt.Fprintf(w, "%s\t%s\t%s\n", idea.ID, idea.Status, idea.Title)
 			}
 			return w.Flush()
 		},
@@ -111,11 +109,60 @@ func newIdeaShowCmd(reader port.IdeaReader) *cobra.Command {
 			if idea.Description != "" {
 				fmt.Fprintf(out, "Description: %s\n", idea.Description)
 			}
-			if idea.Blocked {
-				fmt.Fprintln(out, "Blocked:     yes")
-			}
 			fmt.Fprintf(out, "Created:     %s\n", idea.CreatedAt.Format("2006-01-02 15:04:05"))
 			return nil
 		},
 	}
+}
+
+func newIdeaSetCmd(setter port.IdeaSetter) *cobra.Command {
+	var (
+		statusRaw   string
+		title       string
+		description string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "set <idea-id>",
+		Short: "Update fields on an idea",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.ToUpper(strings.TrimSpace(args[0]))
+
+			req := port.SetIdeaRequest{ID: id}
+
+			if cmd.Flags().Changed("status") {
+				s, err := domain.ParseStatus(statusRaw)
+				if err != nil {
+					return err
+				}
+				req.Status = &s
+			}
+			if cmd.Flags().Changed("title") {
+				req.Title = &title
+			}
+			if cmd.Flags().Changed("description") {
+				req.Description = &description
+			}
+
+			if req.Status == nil && req.Title == nil && req.Description == nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "available flags: --status, --title, --description")
+				return nil
+			}
+
+			idea, err := setter.SetIdea(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "%s updated (%s)\n", idea.ID, idea.Status)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&statusRaw, "status", "", "new status (draft, refined, ready, in-progress, review, done, archived, blocked)")
+	cmd.Flags().StringVar(&title, "title", "", "new title")
+	cmd.Flags().StringVar(&description, "description", "", "new description")
+
+	return cmd
 }

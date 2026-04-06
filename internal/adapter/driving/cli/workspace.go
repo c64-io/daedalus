@@ -8,7 +8,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port"
 )
 
-func newStatusCmd(reader port.WorkspaceStatusReader) *cobra.Command {
+func newWorkspaceCmd(reader port.WorkspaceStatusReader) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "workspace",
+		Short: "Manage the d7 workspace",
+	}
+
+	cmd.AddCommand(newWorkspaceStatusCmd(reader))
+	return cmd
+}
+
+func newWorkspaceStatusCmd(reader port.WorkspaceStatusReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status [path]",
 		Short: "Show the current d7 workspace's location and declared target",
