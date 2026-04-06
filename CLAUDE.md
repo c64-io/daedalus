@@ -55,11 +55,12 @@ Rules:
 - **Full-agile lifecycle.** Every item carries a status:
   `draft → refined → ready → in-progress → review → done → archived`,
   plus an independent `blocked` flag. Transitions are validated by the core.
-- **Priority and size on every work item.** Priority is an enum:
-  `low | medium | high | critical`. Size is a Fibonacci point value
-  (`1, 2, 3, 5, 8, 13, 21`) — chosen over t-shirts because it composes
-  cleanly into rollups at the Feature and Epic level. Both default to
-  unset; both can be edited at any status.
+- **Priority and size on work items (Epic and below).** Priority is an
+  enum: `low | medium | high | critical`. Size is a Fibonacci point
+  value (`1, 2, 3, 5, 8, 13, 21`) — chosen over t-shirts because it
+  composes cleanly into rollups at the Feature and Epic level. Both
+  default to unset; both can be edited at any status. Ideas do not
+  carry priority or size — they are too vague for estimation.
 - **History and hierarchy are preserved.** The Clover store is append-friendly:
   every status transition, every spec body edit, every parent/child change is
   recorded with a timestamp so "why does this exist and how did it get here?"
@@ -273,9 +274,15 @@ internal/core/
                                               #   Status, Priority, Size, Link, HistoryEntry
   port/
     workspace_initializer.go                  # driving
+    workspace_status_reader.go                # driving
+    project_description_reader.go             # driving
+    idea_creator.go, idea_reader.go           # driving
+    epic_creator.go, epic_reader.go           # driving
     workspace_repository.go                   # driven: storage
+    idea_repository.go                        # driven: storage
+    epic_repository.go                        # driven: storage
     filesystem.go                             # driven: disk side-effects
-    (future) idea_service.go ... code_generator.go  # driving
+    (future) code_generator.go                # driving
     (future) verifier.go                      # driving: d7 verify use case
     (future) ai_assistant.go                  # driven: multi-turn agent over LLM
     (future) scenario_runner.go               # driven: run Gherkin, return structured results
@@ -327,20 +334,36 @@ internal/adapter/
 
 ## Current state (as of this commit)
 
-Only the foundation is in place:
+Implemented:
 
-- `d7 init [path]` creates `d7/.db/` and provisions an empty Clover store.
-  Errors if `d7/` already exists.
-- Ports: `WorkspaceInitializer`, `WorkspaceRepository`, `FileSystem`.
+- `d7 init [path] --lang <go|typescript>` creates `d7/.db/` and
+  `d7/project.md`, provisions an empty Clover store with immutable
+  target metadata. Errors if `d7/` already exists.
+- `d7 status` shows workspace dir, target, and project description state.
+- `d7 project show` prints the project description (`d7/project.md`);
+  hints on stderr if it is still the default template.
+- `d7 idea new --title "..." [--description "..."] [--expand]` creates
+  an Idea in `draft` status with a stable IDEA-XXX ID.
+- `d7 idea list` / `d7 idea show <id>` for reading Ideas.
+- `d7 epic new --idea IDEA-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates an Epic under a parent Idea. The parent must be at least
+  `refined`; draft and archived Ideas are rejected.
+- `d7 epic list [--idea IDEA-XXX]` lists all epics or filters by parent.
+- `d7 epic show <id>` shows epic details including parent Idea info.
+- Domain types: `Idea`, `Epic`, `Status` (with transition state machine),
+  `Target`, `Priority`, `Size`, `HistoryEntry`, `ProjectDescription`.
+- Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
+  `WorkspaceRepository`, `FileSystem`, `ProjectDescriptionReader`,
+  `IdeaCreator`, `IdeaReader`, `IdeaRepository`,
+  `EpicCreator`, `EpicReader`, `EpicRepository`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `cli` (cobra).
 
-Everything else in this document — ideas, epics, features, stories, the
-sparse graph, history, Gherkin export with mandatory `@d7:SCEN-XXX`
-tagging, AI assist, the agentic generator, worktree isolation,
-regeneration, the ScenarioRunner port with godog and cucumber-js
-adapters, and the verify loop that terminates generation — is planned
-surface area and should be built incrementally, each behind its own
-port, each with the same discipline.
+Not yet implemented: features, stories, specs, scenarios, status
+transitions, history tracking on mutations, the sparse graph,
+Gherkin export, AI assist, the agentic generator, worktree isolation,
+regeneration, the ScenarioRunner port, and the verify loop. All are
+planned surface area and should be built incrementally, each behind
+its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -348,15 +371,19 @@ port, each with the same discipline.
 go mod tidy
 go build ./...
 go vet ./...
+go test ./...
 ```
 
 Manual smoke test:
 
 ```sh
+go build -o /tmp/d7 ./cmd/d7
 mkdir /tmp/d7-test && cd /tmp/d7-test
-go run github.com/c64-io/daedalus/cmd/d7 init
-ls -la d7/.db                # expect data.db
-go run github.com/c64-io/daedalus/cmd/d7 init   # expect error (already initialized)
+/tmp/d7 init --lang go
+/tmp/d7 status
+/tmp/d7 idea new --title "My SaaS"
+/tmp/d7 idea list
+/tmp/d7 idea show IDEA-001
 ```
 
 ## Working in this repo (for Claude Code sessions)

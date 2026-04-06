@@ -19,10 +19,13 @@ func main() {
 	wsRepo := cloveradapter.NewWorkspaceRepository()
 	ideaRepo := cloveradapter.NewIdeaRepository()
 
+	epicRepo := cloveradapter.NewEpicRepository()
+
 	wsSvc := service.NewWorkspaceService(fs, wsRepo)
 	ideaSvc := service.NewIdeaService(fs, ideaRepo)
+	epicSvc := service.NewEpicService(fs, epicRepo, ideaRepo)
 
-	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc, wsSvc)
+	root := cli.NewRootCmd(wsSvc, wsSvc, ideaSvc, ideaSvc, wsSvc, epicSvc, epicSvc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

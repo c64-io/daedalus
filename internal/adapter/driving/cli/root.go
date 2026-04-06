@@ -14,6 +14,8 @@ func NewRootCmd(
 	ideaCreator port.IdeaCreator,
 	ideaReader port.IdeaReader,
 	projectDescReader port.ProjectDescriptionReader,
+	epicCreator port.EpicCreator,
+	epicReader port.EpicReader,
 ) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "d7",
@@ -27,5 +29,6 @@ func NewRootCmd(
 	root.AddCommand(newStatusCmd(statusReader))
 	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader))
 	root.AddCommand(newProjectCmd(projectDescReader))
+	root.AddCommand(newEpicCmd(epicCreator, epicReader, ideaReader))
 	return root
 }
