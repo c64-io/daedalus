@@ -280,9 +280,11 @@ internal/core/
     workspace_description.go                  # driving: read/write project description
     idea_creator.go, idea_reader.go           # driving
     epic_creator.go, epic_reader.go           # driving
+    feature_creator.go, feature_reader.go     # driving
     workspace_repository.go                   # driven: storage (incl. project description)
     idea_repository.go                        # driven: storage
     epic_repository.go                        # driven: storage
+    feature_repository.go                     # driven: storage
     filesystem.go                             # driven: disk side-effects
     editor.go                                 # driven: $EDITOR
     (future) code_generator.go                # driving
@@ -367,25 +369,38 @@ Implemented:
 - `d7 epic edit <id>` opens `$EDITOR` with YAML front-matter (id, idea,
   status, title, priority, size, created) plus the description body.
   Changed fields are applied via `SetEpic`.
-- Editor-based editing uses a shared edit loop: if YAML parsing fails,
-  the editor re-opens with the error prepended as a comment.
-- Domain types: `Idea`, `Epic`, `Status` (with transition state machine
-  including `blocked`), `Target`, `Priority`, `Size`, `HistoryEntry`,
-  `ProjectDescription`, `FrontMatterField`.
+- `d7 feature new --epic EPIC-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates a Feature under a parent Epic. The parent must be at least
+  `refined`; draft and archived Epics are rejected.
+- `d7 feature list [--epic EPIC-XXX]` lists all features or filters
+  by parent.
+- `d7 feature show <id>` shows feature details including parent Epic info.
+- `d7 feature set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- `d7 feature edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  epic, status, title, priority, size, created) plus the description
+  body. Changed fields are applied via `SetFeature`.
+- Editor-based editing uses a shared edit loop: if YAML parsing or
+  validation fails, the editor re-opens with the error prepended as
+  a comment.
+- Domain types: `Idea`, `Epic`, `Feature`, `Status` (with transition
+  state machine including `blocked`), `Target`, `Priority`, `Size`,
+  `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
 - Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
   `WorkspaceDescriptionReader`, `WorkspaceDescriptionWriter`,
   `WorkspaceRepository`, `FileSystem`, `Editor`,
   `IdeaCreator`, `IdeaReader`, `IdeaSetter`, `IdeaRepository`,
   `EpicCreator`, `EpicReader`, `EpicSetter`, `EpicRepository`,
-  `HistoryRepository`.
+  `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
+  `FeatureRepository`, `HistoryRepository`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 
-Not yet implemented: features, stories, specs, scenarios, the sparse
-graph, Gherkin export, AI assist, the agentic generator, worktree
-isolation, regeneration, the ScenarioRunner port, and the verify loop.
-All are planned surface area and should be built incrementally, each
-behind its own port, each with the same discipline.
+Not yet implemented: stories, specs, scenarios, the sparse graph,
+Gherkin export, AI assist, the agentic generator, worktree isolation,
+regeneration, the ScenarioRunner port, and the verify loop. All are
+planned surface area and should be built incrementally, each behind
+its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -411,7 +426,12 @@ EDITOR=cat /tmp/d7 workspace edit
 /tmp/d7 idea set IDEA-001 --status refined
 EDITOR=cat /tmp/d7 idea edit IDEA-001
 /tmp/d7 epic new --idea IDEA-001 --title "Billing"
+/tmp/d7 epic set EPIC-001 --status refined
 EDITOR=cat /tmp/d7 epic edit EPIC-001
+/tmp/d7 feature new --epic EPIC-001 --title "Payment Processing"
+/tmp/d7 feature list --epic EPIC-001
+/tmp/d7 feature show FEAT-001
+EDITOR=cat /tmp/d7 feature edit FEAT-001
 ```
 
 ## Working in this repo (for Claude Code sessions)

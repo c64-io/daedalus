@@ -19,6 +19,9 @@ func NewRootCmd(
 	epicCreator port.EpicCreator,
 	epicReader port.EpicReader,
 	epicSetter port.EpicSetter,
+	featureCreator port.FeatureCreator,
+	featureReader port.FeatureReader,
+	featureSetter port.FeatureSetter,
 	editor port.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
@@ -33,5 +36,6 @@ func NewRootCmd(
 	root.AddCommand(newWorkspaceCmd(statusReader, descReader, descWriter, editor))
 	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter, editor))
 	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader, editor))
+	root.AddCommand(newFeatureCmd(featureCreator, featureReader, featureSetter, epicReader, editor))
 	return root
 }
