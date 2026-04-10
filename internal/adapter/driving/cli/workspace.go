@@ -7,14 +7,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 func newWorkspaceCmd(
-	statusReader port.WorkspaceStatusReader,
-	descReader port.WorkspaceDescriptionReader,
-	descWriter port.WorkspaceDescriptionWriter,
-	editor port.Editor,
+	statusReader driving.WorkspaceStatusReader,
+	descReader driving.WorkspaceDescriptionReader,
+	descWriter driving.WorkspaceDescriptionWriter,
+	editor driven.Editor,
 ) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",
@@ -27,7 +28,7 @@ func newWorkspaceCmd(
 	return cmd
 }
 
-func newWorkspaceStatusCmd(reader port.WorkspaceStatusReader) *cobra.Command {
+func newWorkspaceStatusCmd(reader driving.WorkspaceStatusReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status [path]",
 		Short: "Show the current d7 workspace's location and declared target",
@@ -60,7 +61,7 @@ func newWorkspaceStatusCmd(reader port.WorkspaceStatusReader) *cobra.Command {
 	}
 }
 
-func newWorkspaceShowCmd(reader port.WorkspaceDescriptionReader) *cobra.Command {
+func newWorkspaceShowCmd(reader driving.WorkspaceDescriptionReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
 		Short: "Show the project description",
@@ -83,10 +84,10 @@ func newWorkspaceShowCmd(reader port.WorkspaceDescriptionReader) *cobra.Command 
 }
 
 func newWorkspaceEditCmd(
-	descReader port.WorkspaceDescriptionReader,
-	descWriter port.WorkspaceDescriptionWriter,
-	statusReader port.WorkspaceStatusReader,
-	editor port.Editor,
+	descReader driving.WorkspaceDescriptionReader,
+	descWriter driving.WorkspaceDescriptionWriter,
+	statusReader driving.WorkspaceStatusReader,
+	editor driven.Editor,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",

@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
@@ -47,7 +48,7 @@ func (r *fakeEpicRepo) GetEpic(_ context.Context, _ string, id string) (*domain.
 			return &r.epics[i], nil
 		}
 	}
-	return nil, port.ErrEpicNotFound
+	return nil, driven.ErrEpicNotFound
 }
 
 func (r *fakeEpicRepo) ListEpics(_ context.Context, _ string, ideaID string) ([]domain.Epic, error) {
@@ -76,7 +77,7 @@ func (r *fakeEpicRepo) UpdateEpic(_ context.Context, _ string, epic domain.Epic)
 			return nil
 		}
 	}
-	return port.ErrEpicNotFound
+	return driven.ErrEpicNotFound
 }
 
 // seedRefinedIdea adds a refined idea to the fake idea repo so epic
@@ -100,7 +101,7 @@ func TestCreateEpic_Success(t *testing.T) {
 	epicRepo := &fakeEpicRepo{}
 	svc := service.NewEpicService(fs, epicRepo, ideaRepo, &fakeHistoryRepo{})
 
-	epic, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	epic, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID:      "IDEA-001",
 		Title:       "Billing",
 		Description: "Payment processing",
@@ -145,7 +146,7 @@ func TestCreateEpic_MonotonicIDs(t *testing.T) {
 	svc := service.NewEpicService(fs, epicRepo, ideaRepo, &fakeHistoryRepo{})
 
 	for i := 1; i <= 3; i++ {
-		epic, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+		epic, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 			IdeaID: "IDEA-001",
 			Title:  "epic",
 		})
@@ -166,7 +167,7 @@ func TestCreateEpic_TitleRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-001",
 	})
 	if !errors.Is(err, service.ErrEpicTitleRequired) {
@@ -181,7 +182,7 @@ func TestCreateEpic_IdeaRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		Title: "Billing",
 	})
 	if !errors.Is(err, service.ErrEpicIdeaRequired) {
@@ -196,11 +197,11 @@ func TestCreateEpic_IdeaNotFound(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-999",
 		Title:  "Billing",
 	})
-	if !errors.Is(err, port.ErrIdeaNotFound) {
+	if !errors.Is(err, driven.ErrIdeaNotFound) {
 		t.Fatalf("CreateEpic err = %v, want ErrIdeaNotFound", err)
 	}
 }
@@ -216,7 +217,7 @@ func TestCreateEpic_IdeaNotRefined(t *testing.T) {
 	})
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, ideaRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-001",
 		Title:  "Billing",
 	})
@@ -236,7 +237,7 @@ func TestCreateEpic_IdeaArchived(t *testing.T) {
 	})
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, ideaRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-001",
 		Title:  "Billing",
 	})
@@ -251,7 +252,7 @@ func TestCreateEpic_WorkspaceNotFound(t *testing.T) {
 	fs := newFakeFS("/empty")
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	_, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-001",
 		Title:  "x",
 	})
@@ -270,7 +271,7 @@ func TestCreateEpic_OptionalPrioritySize(t *testing.T) {
 	epicRepo := &fakeEpicRepo{}
 	svc := service.NewEpicService(fs, epicRepo, ideaRepo, &fakeHistoryRepo{})
 
-	epic, err := svc.CreateEpic(context.Background(), port.CreateEpicRequest{
+	epic, err := svc.CreateEpic(context.Background(), driving.CreateEpicRequest{
 		IdeaID: "IDEA-001",
 		Title:  "No priority or size",
 	})
@@ -296,9 +297,9 @@ func TestListEpics_FilterByIdea(t *testing.T) {
 	epicRepo := &fakeEpicRepo{}
 	svc := service.NewEpicService(fs, epicRepo, ideaRepo, &fakeHistoryRepo{})
 
-	_, _ = svc.CreateEpic(context.Background(), port.CreateEpicRequest{IdeaID: "IDEA-001", Title: "A"})
-	_, _ = svc.CreateEpic(context.Background(), port.CreateEpicRequest{IdeaID: "IDEA-002", Title: "B"})
-	_, _ = svc.CreateEpic(context.Background(), port.CreateEpicRequest{IdeaID: "IDEA-001", Title: "C"})
+	_, _ = svc.CreateEpic(context.Background(), driving.CreateEpicRequest{IdeaID: "IDEA-001", Title: "A"})
+	_, _ = svc.CreateEpic(context.Background(), driving.CreateEpicRequest{IdeaID: "IDEA-002", Title: "B"})
+	_, _ = svc.CreateEpic(context.Background(), driving.CreateEpicRequest{IdeaID: "IDEA-001", Title: "C"})
 
 	all, err := svc.ListEpics(context.Background(), "", "")
 	if err != nil {
@@ -325,7 +326,7 @@ func TestGetEpic_NotFound(t *testing.T) {
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
 	_, err := svc.GetEpic(context.Background(), "", "EPIC-999")
-	if !errors.Is(err, port.ErrEpicNotFound) {
+	if !errors.Is(err, driven.ErrEpicNotFound) {
 		t.Fatalf("GetEpic err = %v, want ErrEpicNotFound", err)
 	}
 }
@@ -343,7 +344,7 @@ func TestSetEpic_StatusTransition(t *testing.T) {
 	svc := service.NewEpicService(fs, epicRepo, &fakeIdeaRepo{}, histRepo)
 
 	refined := domain.StatusRefined
-	epic, err := svc.SetEpic(context.Background(), port.SetEpicRequest{
+	epic, err := svc.SetEpic(context.Background(), driving.SetEpicRequest{
 		ID: "EPIC-001", Status: &refined,
 	})
 	if err != nil {
@@ -371,7 +372,7 @@ func TestSetEpic_PriorityAndSize(t *testing.T) {
 
 	p := domain.PriorityCritical
 	sz := domain.Size13
-	epic, err := svc.SetEpic(context.Background(), port.SetEpicRequest{
+	epic, err := svc.SetEpic(context.Background(), driving.SetEpicRequest{
 		ID: "EPIC-001", Priority: &p, Size: &sz,
 	})
 	if err != nil {
@@ -400,7 +401,7 @@ func TestSetEpic_InvalidTransition(t *testing.T) {
 	svc := service.NewEpicService(fs, epicRepo, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
 	done := domain.StatusDone
-	_, err := svc.SetEpic(context.Background(), port.SetEpicRequest{
+	_, err := svc.SetEpic(context.Background(), driving.SetEpicRequest{
 		ID: "EPIC-001", Status: &done,
 	})
 	if !errors.Is(err, domain.ErrInvalidTransition) {
@@ -415,7 +416,7 @@ func TestSetEpic_NoFields(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewEpicService(fs, &fakeEpicRepo{}, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.SetEpic(context.Background(), port.SetEpicRequest{ID: "EPIC-001"})
+	_, err := svc.SetEpic(context.Background(), driving.SetEpicRequest{ID: "EPIC-001"})
 	if !errors.Is(err, service.ErrNoFieldsToSet) {
 		t.Fatalf("SetEpic err = %v, want ErrNoFieldsToSet", err)
 	}

@@ -3,14 +3,14 @@ package cli
 import (
 	"fmt"
 
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // editLoop opens the editor on initialContent, then calls parse on
 // the result. If parse returns an error, the error is prepended as a
 // comment and the editor is re-opened. On success, returns the final
 // edited content.
-func editLoop(editor port.Editor, initialContent string, parse func(string) error) (string, error) {
+func editLoop(editor driven.Editor, initialContent string, parse func(string) error) (string, error) {
 	content := initialContent
 	for {
 		edited, err := editor.Edit(content)

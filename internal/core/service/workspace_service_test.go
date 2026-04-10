@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
@@ -137,7 +138,7 @@ func (r *fakeRepo) ReadProjectDescription(_ context.Context, _ string) (string, 
 		return "", r.readDescErr
 	}
 	if !r.descriptionSet {
-		return "", port.ErrProjectDescriptionNotFound
+		return "", driven.ErrProjectDescriptionNotFound
 	}
 	return r.description, nil
 }
@@ -149,7 +150,7 @@ func TestInit_Success_Go(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := service.NewWorkspaceService(fs, repo)
 
-	ws, err := svc.Init(context.Background(), port.InitRequest{
+	ws, err := svc.Init(context.Background(), driving.InitRequest{
 		Target: domain.TargetGo,
 	})
 	if err != nil {
@@ -185,7 +186,7 @@ func TestInit_Success_TypeScript_ExplicitRoot(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := service.NewWorkspaceService(fs, repo)
 
-	ws, err := svc.Init(context.Background(), port.InitRequest{
+	ws, err := svc.Init(context.Background(), driving.InitRequest{
 		RootDir: "/srv/app",
 		Target:  domain.TargetTypeScript,
 	})
@@ -204,7 +205,7 @@ func TestInit_NoTarget(t *testing.T) {
 	t.Parallel()
 
 	svc := service.NewWorkspaceService(newFakeFS("/x"), &fakeRepo{})
-	_, err := svc.Init(context.Background(), port.InitRequest{RootDir: "/x"})
+	_, err := svc.Init(context.Background(), driving.InitRequest{RootDir: "/x"})
 	if !errors.Is(err, service.ErrNoTarget) {
 		t.Fatalf("Init err = %v, want ErrNoTarget", err)
 	}
@@ -218,7 +219,7 @@ func TestInit_WorkspaceAlreadyExists(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := service.NewWorkspaceService(fs, repo)
 
-	_, err := svc.Init(context.Background(), port.InitRequest{
+	_, err := svc.Init(context.Background(), driving.InitRequest{
 		Target: domain.TargetGo,
 	})
 	if !errors.Is(err, service.ErrWorkspaceExists) {
@@ -303,7 +304,7 @@ func TestInit_SavesProjectDescription(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := service.NewWorkspaceService(fs, repo)
 
-	_, err := svc.Init(context.Background(), port.InitRequest{Target: domain.TargetGo})
+	_, err := svc.Init(context.Background(), driving.InitRequest{Target: domain.TargetGo})
 	if err != nil {
 		t.Fatalf("Init returned unexpected error: %v", err)
 	}

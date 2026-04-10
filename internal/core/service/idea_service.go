@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 // ErrIdeaTitleRequired is returned when a CreateIdea request has an
@@ -19,27 +20,27 @@ var ErrNoFieldsToSet = errors.New("no fields to set")
 
 // Compile-time assertions.
 var (
-	_ port.IdeaCreator = (*IdeaService)(nil)
-	_ port.IdeaReader  = (*IdeaService)(nil)
-	_ port.IdeaSetter  = (*IdeaService)(nil)
+	_ driving.IdeaCreator = (*IdeaService)(nil)
+	_ driving.IdeaReader  = (*IdeaService)(nil)
+	_ driving.IdeaSetter  = (*IdeaService)(nil)
 )
 
 // IdeaService implements the IdeaCreator, IdeaReader, and IdeaSetter
 // use cases.
 type IdeaService struct {
-	fs      port.FileSystem
-	repo    port.IdeaRepository
-	history port.HistoryRepository
+	fs      driven.FileSystem
+	repo    driven.IdeaRepository
+	history driven.HistoryRepository
 }
 
 // NewIdeaService wires the service with its driven dependencies.
-func NewIdeaService(fs port.FileSystem, repo port.IdeaRepository, history port.HistoryRepository) *IdeaService {
+func NewIdeaService(fs driven.FileSystem, repo driven.IdeaRepository, history driven.HistoryRepository) *IdeaService {
 	return &IdeaService{fs: fs, repo: repo, history: history}
 }
 
 // CreateIdea validates the request, mints the next IDEA-XXX ID via
 // the repository, and persists the new Idea with status "draft".
-func (s *IdeaService) CreateIdea(ctx context.Context, req port.CreateIdeaRequest) (*domain.Idea, error) {
+func (s *IdeaService) CreateIdea(ctx context.Context, req driving.CreateIdeaRequest) (*domain.Idea, error) {
 	if req.Title == "" {
 		return nil, ErrIdeaTitleRequired
 	}
@@ -97,7 +98,7 @@ func (s *IdeaService) ListIdeas(ctx context.Context, rootDir string) ([]domain.I
 
 // SetIdea applies the requested field changes to an existing Idea,
 // validates status transitions, records history entries, and persists.
-func (s *IdeaService) SetIdea(ctx context.Context, req port.SetIdeaRequest) (*domain.Idea, error) {
+func (s *IdeaService) SetIdea(ctx context.Context, req driving.SetIdeaRequest) (*domain.Idea, error) {
 	if req.ID == "" {
 		return nil, ErrIdeaTitleRequired // reuse: ID is effectively required like title
 	}

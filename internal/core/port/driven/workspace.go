@@ -1,4 +1,4 @@
-package port
+package driven
 
 import (
 	"context"
@@ -18,11 +18,7 @@ type WorkspaceRepository interface {
 	CreateDatabase(ctx context.Context, dbDir string, meta domain.WorkspaceMetadata) error
 
 	// ReadMetadata opens the database at the given directory, reads
-	// the single workspace metadata record, and returns it. It is the
-	// read side of CreateDatabase. Implementations must return a
-	// wrapped ErrMetadataNotFound when the database exists but
-	// contains no workspace record (which indicates either corruption
-	// or a partially-initialized workspace).
+	// the single workspace metadata record, and returns it.
 	ReadMetadata(ctx context.Context, dbDir string) (domain.WorkspaceMetadata, error)
 
 	// SaveProjectDescription writes the project description content
@@ -36,9 +32,7 @@ type WorkspaceRepository interface {
 }
 
 // ErrMetadataNotFound is returned by WorkspaceRepository.ReadMetadata
-// when the database exists but contains no workspace metadata
-// record. It is a driven-port sentinel so both the service layer and
-// tests can match on it.
+// when the database exists but contains no workspace metadata record.
 var ErrMetadataNotFound = errors.New("workspace metadata not found")
 
 // ErrProjectDescriptionNotFound is returned when no project

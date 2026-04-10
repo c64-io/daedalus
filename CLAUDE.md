@@ -275,24 +275,28 @@ internal/core/
   domain/                                     # Idea, Epic, Feature, Story, Spec, Scenario,
                                               #   Status, Priority, Size, Link, HistoryEntry
   port/
-    workspace_initializer.go                  # driving
-    workspace_status_reader.go                # driving
-    workspace_description.go                  # driving: read/write project description
-    idea_creator.go, idea_reader.go           # driving
-    epic_creator.go, epic_reader.go           # driving
-    feature_creator.go, feature_reader.go     # driving
-    workspace_repository.go                   # driven: storage (incl. project description)
-    idea_repository.go                        # driven: storage
-    epic_repository.go                        # driven: storage
-    feature_repository.go                     # driven: storage
-    filesystem.go                             # driven: disk side-effects
-    editor.go                                 # driven: $EDITOR
-    (future) code_generator.go                # driving
-    (future) verifier.go                      # driving: d7 verify use case
-    (future) ai_assistant.go                  # driven: multi-turn agent over LLM
-    (future) scenario_runner.go               # driven: run Gherkin, return structured results
-    (future) git_worktree.go                  # driven: worktree create/commit/discard
-    (future) clock.go                         # driven: time (audit trail)
+    driving/                                  # inbound ports (CLI → service)
+      workspace.go                            # InitRequest, WorkspaceInitializer,
+                                              #   WorkspaceStatusReader, WorkspaceDescription{Reader,Writer}
+      idea.go                                 # CreateIdeaRequest, IdeaCreator, IdeaReader, IdeaSetter
+      epic.go                                 # CreateEpicRequest, EpicCreator, EpicReader, EpicSetter
+      feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader, FeatureSetter
+      story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
+      (future) code_generator.go              # generation use case
+      (future) verifier.go                    # d7 verify use case
+    driven/                                   # outbound ports (service → adapter)
+      workspace.go                            # WorkspaceRepository, ErrMetadataNotFound
+      idea.go                                 # IdeaRepository, ErrIdeaNotFound
+      epic.go                                 # EpicRepository, ErrEpicNotFound
+      feature.go                              # FeatureRepository, ErrFeatureNotFound
+      story.go                                # StoryRepository, ErrStoryNotFound
+      history.go                              # HistoryRepository
+      filesystem.go                           # FileSystem
+      editor.go                               # Editor ($EDITOR)
+      (future) ai_assistant.go                # multi-turn agent over LLM
+      (future) scenario_runner.go             # run Gherkin, return structured results
+      (future) git_worktree.go                # worktree create/commit/discard
+      (future) clock.go                       # time (audit trail)
   service/                                    # pure use-case implementations
 internal/adapter/
   driving/cli/                                # cobra commands
@@ -397,14 +401,17 @@ Implemented:
 - Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Status` (with
   transition state machine including `blocked`), `Target`, `Priority`,
   `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
-- Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
+- Ports are split into `port/driving` (inbound, CLI → service) and
+  `port/driven` (outbound, service → adapter). Driving:
+  `WorkspaceInitializer`, `WorkspaceStatusReader`,
   `WorkspaceDescriptionReader`, `WorkspaceDescriptionWriter`,
-  `WorkspaceRepository`, `FileSystem`, `Editor`,
-  `IdeaCreator`, `IdeaReader`, `IdeaSetter`, `IdeaRepository`,
-  `EpicCreator`, `EpicReader`, `EpicSetter`, `EpicRepository`,
+  `IdeaCreator`, `IdeaReader`, `IdeaSetter`,
+  `EpicCreator`, `EpicReader`, `EpicSetter`,
   `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
-  `FeatureRepository`, `StoryCreator`, `StoryReader`, `StorySetter`,
-  `StoryRepository`, `HistoryRepository`.
+  `StoryCreator`, `StoryReader`, `StorySetter`.
+  Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
+  `FeatureRepository`, `StoryRepository`, `HistoryRepository`,
+  `FileSystem`, `Editor`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 

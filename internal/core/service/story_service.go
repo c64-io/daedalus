@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 // Sentinel errors for StoryService.
@@ -29,29 +30,29 @@ var minFeatureStatusForStory = map[domain.Status]bool{
 
 // Compile-time assertions.
 var (
-	_ port.StoryCreator = (*StoryService)(nil)
-	_ port.StoryReader  = (*StoryService)(nil)
-	_ port.StorySetter  = (*StoryService)(nil)
+	_ driving.StoryCreator = (*StoryService)(nil)
+	_ driving.StoryReader  = (*StoryService)(nil)
+	_ driving.StorySetter  = (*StoryService)(nil)
 )
 
 // StoryService implements the StoryCreator, StoryReader, and
 // StorySetter use cases.
 type StoryService struct {
-	fs          port.FileSystem
-	storyRepo   port.StoryRepository
-	featureRepo port.FeatureRepository
-	history     port.HistoryRepository
+	fs          driven.FileSystem
+	storyRepo   driven.StoryRepository
+	featureRepo driven.FeatureRepository
+	history     driven.HistoryRepository
 }
 
 // NewStoryService wires the service with its driven dependencies.
-func NewStoryService(fs port.FileSystem, storyRepo port.StoryRepository, featureRepo port.FeatureRepository, history port.HistoryRepository) *StoryService {
+func NewStoryService(fs driven.FileSystem, storyRepo driven.StoryRepository, featureRepo driven.FeatureRepository, history driven.HistoryRepository) *StoryService {
 	return &StoryService{fs: fs, storyRepo: storyRepo, featureRepo: featureRepo, history: history}
 }
 
 // CreateStory validates the request, checks the parent Feature exists
 // and is at least refined, mints the next STORY-XXX ID, and persists
 // the new Story with status "draft".
-func (s *StoryService) CreateStory(ctx context.Context, req port.CreateStoryRequest) (*domain.Story, error) {
+func (s *StoryService) CreateStory(ctx context.Context, req driving.CreateStoryRequest) (*domain.Story, error) {
 	if req.FeatureID == "" {
 		return nil, ErrStoryFeatureRequired
 	}
@@ -125,7 +126,7 @@ func (s *StoryService) ListStories(ctx context.Context, rootDir string, featureI
 
 // SetStory applies the requested field changes to an existing Story,
 // validates status transitions, records history entries, and persists.
-func (s *StoryService) SetStory(ctx context.Context, req port.SetStoryRequest) (*domain.Story, error) {
+func (s *StoryService) SetStory(ctx context.Context, req driving.SetStoryRequest) (*domain.Story, error) {
 	if req.ID == "" {
 		return nil, ErrStoryTitleRequired
 	}

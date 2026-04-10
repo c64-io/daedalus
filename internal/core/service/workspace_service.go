@@ -7,7 +7,8 @@ import (
 	"io/fs"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 // ErrWorkspaceExists is returned when `d7 init` is run in a directory
@@ -26,10 +27,10 @@ var ErrWorkspaceNotFound = errors.New("d7 workspace not found")
 // Compile-time assertions that WorkspaceService satisfies the
 // driving ports it implements.
 var (
-	_ port.WorkspaceInitializer           = (*WorkspaceService)(nil)
-	_ port.WorkspaceStatusReader          = (*WorkspaceService)(nil)
-	_ port.WorkspaceDescriptionReader     = (*WorkspaceService)(nil)
-	_ port.WorkspaceDescriptionWriter     = (*WorkspaceService)(nil)
+	_ driving.WorkspaceInitializer           = (*WorkspaceService)(nil)
+	_ driving.WorkspaceStatusReader          = (*WorkspaceService)(nil)
+	_ driving.WorkspaceDescriptionReader     = (*WorkspaceService)(nil)
+	_ driving.WorkspaceDescriptionWriter     = (*WorkspaceService)(nil)
 )
 
 // WorkspaceService implements the WorkspaceInitializer and
@@ -37,19 +38,19 @@ var (
 // no direct I/O imports — so it is fully unit-testable with in-memory
 // fakes.
 type WorkspaceService struct {
-	fs   port.FileSystem
-	repo port.WorkspaceRepository
+	fs   driven.FileSystem
+	repo driven.WorkspaceRepository
 }
 
 // NewWorkspaceService wires the service with its driven dependencies.
-func NewWorkspaceService(fs port.FileSystem, repo port.WorkspaceRepository) *WorkspaceService {
+func NewWorkspaceService(fs driven.FileSystem, repo driven.WorkspaceRepository) *WorkspaceService {
 	return &WorkspaceService{fs: fs, repo: repo}
 }
 
 // Init creates the on-disk workspace layout rooted at req.RootDir and
 // provisions its database via the injected repository, persisting the
 // supplied target as the workspace's immutable metadata.
-func (s *WorkspaceService) Init(ctx context.Context, req port.InitRequest) (*domain.Workspace, error) {
+func (s *WorkspaceService) Init(ctx context.Context, req driving.InitRequest) (*domain.Workspace, error) {
 	if req.Target == "" {
 		return nil, ErrNoTarget
 	}

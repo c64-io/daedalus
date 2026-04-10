@@ -10,7 +10,7 @@ import (
 	q "github.com/ostafen/clover/v2/query"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // Clover collection and field names for epics.
@@ -23,10 +23,10 @@ const (
 )
 
 // Compile-time assertion.
-var _ port.EpicRepository = (*EpicRepository)(nil)
+var _ driven.EpicRepository = (*EpicRepository)(nil)
 
 // EpicRepository is the Clover v2 implementation of
-// port.EpicRepository.
+// driven.EpicRepository.
 type EpicRepository struct{}
 
 // NewEpicRepository returns a Clover-backed epic repository.
@@ -119,7 +119,7 @@ func (r *EpicRepository) GetEpic(_ context.Context, dbDir string, id string) (_ 
 		return nil, fmt.Errorf("check %q collection: %w", epicsCollection, err)
 	}
 	if !has {
-		return nil, fmt.Errorf("%w: %s", port.ErrEpicNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrEpicNotFound, id)
 	}
 
 	doc, err := db.FindFirst(q.NewQuery(epicsCollection).Where(q.Field(fieldID).Eq(id)))
@@ -127,7 +127,7 @@ func (r *EpicRepository) GetEpic(_ context.Context, dbDir string, id string) (_ 
 		return nil, fmt.Errorf("find epic %s: %w", id, err)
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("%w: %s", port.ErrEpicNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrEpicNotFound, id)
 	}
 
 	return docToEpic(doc)
@@ -189,7 +189,7 @@ func (r *EpicRepository) UpdateEpic(_ context.Context, dbDir string, epic domain
 		return fmt.Errorf("find epic %s: %w", epic.ID, err)
 	}
 	if doc == nil {
-		return fmt.Errorf("%w: %s", port.ErrEpicNotFound, epic.ID)
+		return fmt.Errorf("%w: %s", driven.ErrEpicNotFound, epic.ID)
 	}
 
 	return db.UpdateById(epicsCollection, doc.ObjectId(), func(doc *d.Document) *d.Document {

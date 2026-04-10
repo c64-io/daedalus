@@ -1,4 +1,4 @@
-package port
+package driven
 
 // Editor is a driven port abstracting the user's text editor. The
 // service builds the content string; the adapter handles temp files

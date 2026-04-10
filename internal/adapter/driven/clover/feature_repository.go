@@ -10,7 +10,7 @@ import (
 	q "github.com/ostafen/clover/v2/query"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // Clover collection and field names for features.
@@ -21,10 +21,10 @@ const (
 )
 
 // Compile-time assertion.
-var _ port.FeatureRepository = (*FeatureRepository)(nil)
+var _ driven.FeatureRepository = (*FeatureRepository)(nil)
 
 // FeatureRepository is the Clover v2 implementation of
-// port.FeatureRepository.
+// driven.FeatureRepository.
 type FeatureRepository struct{}
 
 // NewFeatureRepository returns a Clover-backed feature repository.
@@ -117,7 +117,7 @@ func (r *FeatureRepository) GetFeature(_ context.Context, dbDir string, id strin
 		return nil, fmt.Errorf("check %q collection: %w", featuresCollection, err)
 	}
 	if !has {
-		return nil, fmt.Errorf("%w: %s", port.ErrFeatureNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrFeatureNotFound, id)
 	}
 
 	doc, err := db.FindFirst(q.NewQuery(featuresCollection).Where(q.Field(fieldID).Eq(id)))
@@ -125,7 +125,7 @@ func (r *FeatureRepository) GetFeature(_ context.Context, dbDir string, id strin
 		return nil, fmt.Errorf("find feature %s: %w", id, err)
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("%w: %s", port.ErrFeatureNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrFeatureNotFound, id)
 	}
 
 	return docToFeature(doc)
@@ -187,7 +187,7 @@ func (r *FeatureRepository) UpdateFeature(_ context.Context, dbDir string, featu
 		return fmt.Errorf("find feature %s: %w", feature.ID, err)
 	}
 	if doc == nil {
-		return fmt.Errorf("%w: %s", port.ErrFeatureNotFound, feature.ID)
+		return fmt.Errorf("%w: %s", driven.ErrFeatureNotFound, feature.ID)
 	}
 
 	return db.UpdateById(featuresCollection, doc.ObjectId(), func(doc *d.Document) *d.Document {

@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
@@ -47,7 +48,7 @@ func (r *fakeFeatureRepo) GetFeature(_ context.Context, _ string, id string) (*d
 			return &r.features[i], nil
 		}
 	}
-	return nil, port.ErrFeatureNotFound
+	return nil, driven.ErrFeatureNotFound
 }
 
 func (r *fakeFeatureRepo) ListFeatures(_ context.Context, _ string, epicID string) ([]domain.Feature, error) {
@@ -76,7 +77,7 @@ func (r *fakeFeatureRepo) UpdateFeature(_ context.Context, _ string, feature dom
 			return nil
 		}
 	}
-	return port.ErrFeatureNotFound
+	return driven.ErrFeatureNotFound
 }
 
 // seedRefinedEpic adds a refined epic to the fake epic repo so feature
@@ -101,7 +102,7 @@ func TestCreateFeature_Success(t *testing.T) {
 	featureRepo := &fakeFeatureRepo{}
 	svc := service.NewFeatureService(fs, featureRepo, epicRepo, &fakeHistoryRepo{})
 
-	feature, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	feature, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID:      "EPIC-001",
 		Title:       "User Login",
 		Description: "OAuth-based login",
@@ -146,7 +147,7 @@ func TestCreateFeature_MonotonicIDs(t *testing.T) {
 	svc := service.NewFeatureService(fs, featureRepo, epicRepo, &fakeHistoryRepo{})
 
 	for i := 1; i <= 3; i++ {
-		feature, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+		feature, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 			EpicID: "EPIC-001",
 			Title:  "feature",
 		})
@@ -167,7 +168,7 @@ func TestCreateFeature_TitleRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-001",
 	})
 	if !errors.Is(err, service.ErrFeatureTitleRequired) {
@@ -182,7 +183,7 @@ func TestCreateFeature_EpicRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		Title: "Login",
 	})
 	if !errors.Is(err, service.ErrFeatureEpicRequired) {
@@ -197,11 +198,11 @@ func TestCreateFeature_EpicNotFound(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-999",
 		Title:  "Login",
 	})
-	if !errors.Is(err, port.ErrEpicNotFound) {
+	if !errors.Is(err, driven.ErrEpicNotFound) {
 		t.Fatalf("CreateFeature err = %v, want ErrEpicNotFound", err)
 	}
 }
@@ -217,7 +218,7 @@ func TestCreateFeature_EpicNotRefined(t *testing.T) {
 	})
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, epicRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-001",
 		Title:  "Login",
 	})
@@ -237,7 +238,7 @@ func TestCreateFeature_EpicArchived(t *testing.T) {
 	})
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, epicRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-001",
 		Title:  "Login",
 	})
@@ -252,7 +253,7 @@ func TestCreateFeature_WorkspaceNotFound(t *testing.T) {
 	fs := newFakeFS("/empty")
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	_, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-001",
 		Title:  "x",
 	})
@@ -271,7 +272,7 @@ func TestCreateFeature_OptionalPrioritySize(t *testing.T) {
 	featureRepo := &fakeFeatureRepo{}
 	svc := service.NewFeatureService(fs, featureRepo, epicRepo, &fakeHistoryRepo{})
 
-	feature, err := svc.CreateFeature(context.Background(), port.CreateFeatureRequest{
+	feature, err := svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{
 		EpicID: "EPIC-001",
 		Title:  "No priority or size",
 	})
@@ -297,9 +298,9 @@ func TestListFeatures_FilterByEpic(t *testing.T) {
 	featureRepo := &fakeFeatureRepo{}
 	svc := service.NewFeatureService(fs, featureRepo, epicRepo, &fakeHistoryRepo{})
 
-	_, _ = svc.CreateFeature(context.Background(), port.CreateFeatureRequest{EpicID: "EPIC-001", Title: "A"})
-	_, _ = svc.CreateFeature(context.Background(), port.CreateFeatureRequest{EpicID: "EPIC-002", Title: "B"})
-	_, _ = svc.CreateFeature(context.Background(), port.CreateFeatureRequest{EpicID: "EPIC-001", Title: "C"})
+	_, _ = svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{EpicID: "EPIC-001", Title: "A"})
+	_, _ = svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{EpicID: "EPIC-002", Title: "B"})
+	_, _ = svc.CreateFeature(context.Background(), driving.CreateFeatureRequest{EpicID: "EPIC-001", Title: "C"})
 
 	all, err := svc.ListFeatures(context.Background(), "", "")
 	if err != nil {
@@ -326,7 +327,7 @@ func TestGetFeature_NotFound(t *testing.T) {
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
 	_, err := svc.GetFeature(context.Background(), "", "FEAT-999")
-	if !errors.Is(err, port.ErrFeatureNotFound) {
+	if !errors.Is(err, driven.ErrFeatureNotFound) {
 		t.Fatalf("GetFeature err = %v, want ErrFeatureNotFound", err)
 	}
 }
@@ -344,7 +345,7 @@ func TestSetFeature_StatusTransition(t *testing.T) {
 	svc := service.NewFeatureService(fs, featureRepo, &fakeEpicRepo{}, histRepo)
 
 	refined := domain.StatusRefined
-	feature, err := svc.SetFeature(context.Background(), port.SetFeatureRequest{
+	feature, err := svc.SetFeature(context.Background(), driving.SetFeatureRequest{
 		ID: "FEAT-001", Status: &refined,
 	})
 	if err != nil {
@@ -372,7 +373,7 @@ func TestSetFeature_PriorityAndSize(t *testing.T) {
 
 	p := domain.PriorityCritical
 	sz := domain.Size13
-	feature, err := svc.SetFeature(context.Background(), port.SetFeatureRequest{
+	feature, err := svc.SetFeature(context.Background(), driving.SetFeatureRequest{
 		ID: "FEAT-001", Priority: &p, Size: &sz,
 	})
 	if err != nil {
@@ -401,7 +402,7 @@ func TestSetFeature_InvalidTransition(t *testing.T) {
 	svc := service.NewFeatureService(fs, featureRepo, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
 	done := domain.StatusDone
-	_, err := svc.SetFeature(context.Background(), port.SetFeatureRequest{
+	_, err := svc.SetFeature(context.Background(), driving.SetFeatureRequest{
 		ID: "FEAT-001", Status: &done,
 	})
 	if !errors.Is(err, domain.ErrInvalidTransition) {
@@ -416,7 +417,7 @@ func TestSetFeature_NoFields(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewFeatureService(fs, &fakeFeatureRepo{}, &fakeEpicRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.SetFeature(context.Background(), port.SetFeatureRequest{ID: "FEAT-001"})
+	_, err := svc.SetFeature(context.Background(), driving.SetFeatureRequest{ID: "FEAT-001"})
 	if !errors.Is(err, service.ErrNoFieldsToSet) {
 		t.Fatalf("SetFeature err = %v, want ErrNoFieldsToSet", err)
 	}

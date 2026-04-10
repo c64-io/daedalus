@@ -10,7 +10,7 @@ import (
 	q "github.com/ostafen/clover/v2/query"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // Clover collection and field names for stories.
@@ -21,10 +21,10 @@ const (
 )
 
 // Compile-time assertion.
-var _ port.StoryRepository = (*StoryRepository)(nil)
+var _ driven.StoryRepository = (*StoryRepository)(nil)
 
 // StoryRepository is the Clover v2 implementation of
-// port.StoryRepository.
+// driven.StoryRepository.
 type StoryRepository struct{}
 
 // NewStoryRepository returns a Clover-backed story repository.
@@ -117,7 +117,7 @@ func (r *StoryRepository) GetStory(_ context.Context, dbDir string, id string) (
 		return nil, fmt.Errorf("check %q collection: %w", storiesCollection, err)
 	}
 	if !has {
-		return nil, fmt.Errorf("%w: %s", port.ErrStoryNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrStoryNotFound, id)
 	}
 
 	doc, err := db.FindFirst(q.NewQuery(storiesCollection).Where(q.Field(fieldID).Eq(id)))
@@ -125,7 +125,7 @@ func (r *StoryRepository) GetStory(_ context.Context, dbDir string, id string) (
 		return nil, fmt.Errorf("find story %s: %w", id, err)
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("%w: %s", port.ErrStoryNotFound, id)
+		return nil, fmt.Errorf("%w: %s", driven.ErrStoryNotFound, id)
 	}
 
 	return docToStory(doc)
@@ -187,7 +187,7 @@ func (r *StoryRepository) UpdateStory(_ context.Context, dbDir string, story dom
 		return fmt.Errorf("find story %s: %w", story.ID, err)
 	}
 	if doc == nil {
-		return fmt.Errorf("%w: %s", port.ErrStoryNotFound, story.ID)
+		return fmt.Errorf("%w: %s", driven.ErrStoryNotFound, story.ID)
 	}
 
 	return db.UpdateById(storiesCollection, doc.ObjectId(), func(doc *d.Document) *d.Document {

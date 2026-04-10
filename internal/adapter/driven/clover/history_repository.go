@@ -9,7 +9,7 @@ import (
 	d "github.com/ostafen/clover/v2/document"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 const (
@@ -23,10 +23,10 @@ const (
 )
 
 // Compile-time assertion.
-var _ port.HistoryRepository = (*HistoryRepository)(nil)
+var _ driven.HistoryRepository = (*HistoryRepository)(nil)
 
 // HistoryRepository is the Clover v2 implementation of
-// port.HistoryRepository. History entries are append-only.
+// driven.HistoryRepository. History entries are append-only.
 type HistoryRepository struct{}
 
 // NewHistoryRepository returns a Clover-backed history repository.

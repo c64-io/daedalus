@@ -8,10 +8,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newEpicCmd(creator port.EpicCreator, reader port.EpicReader, setter port.EpicSetter, ideaReader port.IdeaReader, editor port.Editor) *cobra.Command {
+func newEpicCmd(creator driving.EpicCreator, reader driving.EpicReader, setter driving.EpicSetter, ideaReader driving.IdeaReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "epic",
 		Short: "Manage epics — major capabilities under an idea",
@@ -25,7 +26,7 @@ func newEpicCmd(creator port.EpicCreator, reader port.EpicReader, setter port.Ep
 	return cmd
 }
 
-func newEpicNewCmd(creator port.EpicCreator) *cobra.Command {
+func newEpicNewCmd(creator driving.EpicCreator) *cobra.Command {
 	var (
 		ideaID      string
 		title       string
@@ -59,7 +60,7 @@ func newEpicNewCmd(creator port.EpicCreator) *cobra.Command {
 				}
 			}
 
-			epic, err := creator.CreateEpic(cmd.Context(), port.CreateEpicRequest{
+			epic, err := creator.CreateEpic(cmd.Context(), driving.CreateEpicRequest{
 				IdeaID:      ideaID,
 				Title:       title,
 				Description: description,
@@ -95,7 +96,7 @@ func newEpicNewCmd(creator port.EpicCreator) *cobra.Command {
 	return cmd
 }
 
-func newEpicListCmd(reader port.EpicReader) *cobra.Command {
+func newEpicListCmd(reader driving.EpicReader) *cobra.Command {
 	var ideaID string
 
 	cmd := &cobra.Command{
@@ -140,7 +141,7 @@ func newEpicListCmd(reader port.EpicReader) *cobra.Command {
 	return cmd
 }
 
-func newEpicShowCmd(reader port.EpicReader, ideaReader port.IdeaReader) *cobra.Command {
+func newEpicShowCmd(reader driving.EpicReader, ideaReader driving.IdeaReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <epic-id>",
 		Short: "Show details of a single epic",
@@ -179,7 +180,7 @@ func newEpicShowCmd(reader port.EpicReader, ideaReader port.IdeaReader) *cobra.C
 	}
 }
 
-func newEpicSetCmd(setter port.EpicSetter) *cobra.Command {
+func newEpicSetCmd(setter driving.EpicSetter) *cobra.Command {
 	var (
 		statusRaw   string
 		title       string
@@ -195,7 +196,7 @@ func newEpicSetCmd(setter port.EpicSetter) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.ToUpper(strings.TrimSpace(args[0]))
 
-			req := port.SetEpicRequest{ID: id}
+			req := driving.SetEpicRequest{ID: id}
 
 			if cmd.Flags().Changed("status") {
 				s, err := domain.ParseStatus(statusRaw)
@@ -249,7 +250,7 @@ func newEpicSetCmd(setter port.EpicSetter) *cobra.Command {
 	return cmd
 }
 
-func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.Editor) *cobra.Command {
+func newEpicEditCmd(reader driving.EpicReader, setter driving.EpicSetter, editor driven.Editor) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <epic-id>",
 		Short: "Edit an epic in $EDITOR",
@@ -289,7 +290,7 @@ func newEpicEditCmd(reader port.EpicReader, setter port.EpicSetter, editor port.
 					return parseErr
 				}
 
-				req := port.SetEpicRequest{ID: epic.ID}
+				req := driving.SetEpicRequest{ID: epic.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != epic.ID {

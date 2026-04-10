@@ -1,4 +1,4 @@
-package port
+package driving
 
 import (
 	"context"
@@ -25,4 +25,22 @@ type InitRequest struct {
 // use case to inbound adapters (e.g. the CLI).
 type WorkspaceInitializer interface {
 	Init(ctx context.Context, req InitRequest) (*domain.Workspace, error)
+}
+
+// WorkspaceStatusReader is the driving port exposing the "show
+// workspace status" use case to inbound adapters (e.g. the CLI).
+type WorkspaceStatusReader interface {
+	Status(ctx context.Context, rootDir string) (*domain.WorkspaceStatus, error)
+}
+
+// WorkspaceDescriptionReader is a driving port for reading the
+// workspace's project description from the database.
+type WorkspaceDescriptionReader interface {
+	ReadWorkspaceDescription(ctx context.Context, rootDir string) (*domain.ProjectDescription, error)
+}
+
+// WorkspaceDescriptionWriter is a driving port for writing the
+// workspace's project description to the database.
+type WorkspaceDescriptionWriter interface {
+	WriteWorkspaceDescription(ctx context.Context, rootDir string, content string) error
 }

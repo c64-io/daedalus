@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 // Sentinel errors for EpicService.
@@ -29,29 +30,29 @@ var minIdeaStatusForEpic = map[domain.Status]bool{
 
 // Compile-time assertions.
 var (
-	_ port.EpicCreator = (*EpicService)(nil)
-	_ port.EpicReader  = (*EpicService)(nil)
-	_ port.EpicSetter  = (*EpicService)(nil)
+	_ driving.EpicCreator = (*EpicService)(nil)
+	_ driving.EpicReader  = (*EpicService)(nil)
+	_ driving.EpicSetter  = (*EpicService)(nil)
 )
 
 // EpicService implements the EpicCreator, EpicReader, and EpicSetter
 // use cases.
 type EpicService struct {
-	fs       port.FileSystem
-	epicRepo port.EpicRepository
-	ideaRepo port.IdeaRepository
-	history  port.HistoryRepository
+	fs       driven.FileSystem
+	epicRepo driven.EpicRepository
+	ideaRepo driven.IdeaRepository
+	history  driven.HistoryRepository
 }
 
 // NewEpicService wires the service with its driven dependencies.
-func NewEpicService(fs port.FileSystem, epicRepo port.EpicRepository, ideaRepo port.IdeaRepository, history port.HistoryRepository) *EpicService {
+func NewEpicService(fs driven.FileSystem, epicRepo driven.EpicRepository, ideaRepo driven.IdeaRepository, history driven.HistoryRepository) *EpicService {
 	return &EpicService{fs: fs, epicRepo: epicRepo, ideaRepo: ideaRepo, history: history}
 }
 
 // CreateEpic validates the request, checks the parent Idea exists and
 // is at least refined, mints the next EPIC-XXX ID, and persists the
 // new Epic with status "draft".
-func (s *EpicService) CreateEpic(ctx context.Context, req port.CreateEpicRequest) (*domain.Epic, error) {
+func (s *EpicService) CreateEpic(ctx context.Context, req driving.CreateEpicRequest) (*domain.Epic, error) {
 	if req.IdeaID == "" {
 		return nil, ErrEpicIdeaRequired
 	}
@@ -125,7 +126,7 @@ func (s *EpicService) ListEpics(ctx context.Context, rootDir string, ideaID stri
 
 // SetEpic applies the requested field changes to an existing Epic,
 // validates status transitions, records history entries, and persists.
-func (s *EpicService) SetEpic(ctx context.Context, req port.SetEpicRequest) (*domain.Epic, error) {
+func (s *EpicService) SetEpic(ctx context.Context, req driving.SetEpicRequest) (*domain.Epic, error) {
 	if req.ID == "" {
 		return nil, ErrEpicTitleRequired
 	}

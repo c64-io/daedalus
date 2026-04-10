@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
 // Sentinel errors for FeatureService.
@@ -29,29 +30,29 @@ var minEpicStatusForFeature = map[domain.Status]bool{
 
 // Compile-time assertions.
 var (
-	_ port.FeatureCreator = (*FeatureService)(nil)
-	_ port.FeatureReader  = (*FeatureService)(nil)
-	_ port.FeatureSetter  = (*FeatureService)(nil)
+	_ driving.FeatureCreator = (*FeatureService)(nil)
+	_ driving.FeatureReader  = (*FeatureService)(nil)
+	_ driving.FeatureSetter  = (*FeatureService)(nil)
 )
 
 // FeatureService implements the FeatureCreator, FeatureReader, and
 // FeatureSetter use cases.
 type FeatureService struct {
-	fs          port.FileSystem
-	featureRepo port.FeatureRepository
-	epicRepo    port.EpicRepository
-	history     port.HistoryRepository
+	fs          driven.FileSystem
+	featureRepo driven.FeatureRepository
+	epicRepo    driven.EpicRepository
+	history     driven.HistoryRepository
 }
 
 // NewFeatureService wires the service with its driven dependencies.
-func NewFeatureService(fs port.FileSystem, featureRepo port.FeatureRepository, epicRepo port.EpicRepository, history port.HistoryRepository) *FeatureService {
+func NewFeatureService(fs driven.FileSystem, featureRepo driven.FeatureRepository, epicRepo driven.EpicRepository, history driven.HistoryRepository) *FeatureService {
 	return &FeatureService{fs: fs, featureRepo: featureRepo, epicRepo: epicRepo, history: history}
 }
 
 // CreateFeature validates the request, checks the parent Epic exists
 // and is at least refined, mints the next FEAT-XXX ID, and persists
 // the new Feature with status "draft".
-func (s *FeatureService) CreateFeature(ctx context.Context, req port.CreateFeatureRequest) (*domain.Feature, error) {
+func (s *FeatureService) CreateFeature(ctx context.Context, req driving.CreateFeatureRequest) (*domain.Feature, error) {
 	if req.EpicID == "" {
 		return nil, ErrFeatureEpicRequired
 	}
@@ -125,7 +126,7 @@ func (s *FeatureService) ListFeatures(ctx context.Context, rootDir string, epicI
 
 // SetFeature applies the requested field changes to an existing Feature,
 // validates status transitions, records history entries, and persists.
-func (s *FeatureService) SetFeature(ctx context.Context, req port.SetFeatureRequest) (*domain.Feature, error) {
+func (s *FeatureService) SetFeature(ctx context.Context, req driving.SetFeatureRequest) (*domain.Feature, error) {
 	if req.ID == "" {
 		return nil, ErrFeatureTitleRequired
 	}

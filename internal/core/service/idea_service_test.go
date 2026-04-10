@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
@@ -48,7 +49,7 @@ func (r *fakeIdeaRepo) GetIdea(_ context.Context, _ string, id string) (*domain.
 			return &r.ideas[i], nil
 		}
 	}
-	return nil, port.ErrIdeaNotFound
+	return nil, driven.ErrIdeaNotFound
 }
 
 func (r *fakeIdeaRepo) ListIdeas(_ context.Context, _ string) ([]domain.Idea, error) {
@@ -68,7 +69,7 @@ func (r *fakeIdeaRepo) UpdateIdea(_ context.Context, _ string, idea domain.Idea)
 			return nil
 		}
 	}
-	return port.ErrIdeaNotFound
+	return driven.ErrIdeaNotFound
 }
 
 // fakeHistoryRepo records appended history entries for assertions.
@@ -93,7 +94,7 @@ func TestCreateIdea_Success(t *testing.T) {
 	repo := &fakeIdeaRepo{}
 	svc := service.NewIdeaService(fs, repo, &fakeHistoryRepo{})
 
-	idea, err := svc.CreateIdea(context.Background(), port.CreateIdeaRequest{
+	idea, err := svc.CreateIdea(context.Background(), driving.CreateIdeaRequest{
 		Title:       "My SaaS",
 		Description: "A subscription platform",
 	})
@@ -124,7 +125,7 @@ func TestCreateIdea_MonotonicIDs(t *testing.T) {
 	svc := service.NewIdeaService(fs, repo, &fakeHistoryRepo{})
 
 	for i := 1; i <= 3; i++ {
-		idea, err := svc.CreateIdea(context.Background(), port.CreateIdeaRequest{
+		idea, err := svc.CreateIdea(context.Background(), driving.CreateIdeaRequest{
 			Title: "idea",
 		})
 		if err != nil {
@@ -144,7 +145,7 @@ func TestCreateIdea_TitleRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewIdeaService(fs, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateIdea(context.Background(), port.CreateIdeaRequest{})
+	_, err := svc.CreateIdea(context.Background(), driving.CreateIdeaRequest{})
 	if !errors.Is(err, service.ErrIdeaTitleRequired) {
 		t.Fatalf("CreateIdea err = %v, want ErrIdeaTitleRequired", err)
 	}
@@ -156,7 +157,7 @@ func TestCreateIdea_WorkspaceNotFound(t *testing.T) {
 	fs := newFakeFS("/empty")
 	svc := service.NewIdeaService(fs, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateIdea(context.Background(), port.CreateIdeaRequest{Title: "x"})
+	_, err := svc.CreateIdea(context.Background(), driving.CreateIdeaRequest{Title: "x"})
 	if !errors.Is(err, service.ErrWorkspaceNotFound) {
 		t.Fatalf("CreateIdea err = %v, want ErrWorkspaceNotFound", err)
 	}
@@ -186,7 +187,7 @@ func TestGetIdea_NotFound(t *testing.T) {
 	svc := service.NewIdeaService(fs, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
 	_, err := svc.GetIdea(context.Background(), "", "IDEA-999")
-	if !errors.Is(err, port.ErrIdeaNotFound) {
+	if !errors.Is(err, driven.ErrIdeaNotFound) {
 		t.Fatalf("GetIdea err = %v, want ErrIdeaNotFound", err)
 	}
 }
@@ -204,7 +205,7 @@ func TestSetIdea_StatusTransition(t *testing.T) {
 	svc := service.NewIdeaService(fs, ideaRepo, histRepo)
 
 	refined := domain.StatusRefined
-	idea, err := svc.SetIdea(context.Background(), port.SetIdeaRequest{
+	idea, err := svc.SetIdea(context.Background(), driving.SetIdeaRequest{
 		ID: "IDEA-001", Status: &refined,
 	})
 	if err != nil {
@@ -233,7 +234,7 @@ func TestSetIdea_InvalidTransition(t *testing.T) {
 	svc := service.NewIdeaService(fs, ideaRepo, &fakeHistoryRepo{})
 
 	done := domain.StatusDone
-	_, err := svc.SetIdea(context.Background(), port.SetIdeaRequest{
+	_, err := svc.SetIdea(context.Background(), driving.SetIdeaRequest{
 		ID: "IDEA-001", Status: &done,
 	})
 	if !errors.Is(err, domain.ErrInvalidTransition) {
@@ -255,7 +256,7 @@ func TestSetIdea_MultipleFields(t *testing.T) {
 
 	newTitle := "New Title"
 	newDesc := "new desc"
-	idea, err := svc.SetIdea(context.Background(), port.SetIdeaRequest{
+	idea, err := svc.SetIdea(context.Background(), driving.SetIdeaRequest{
 		ID: "IDEA-001", Title: &newTitle, Description: &newDesc,
 	})
 	if err != nil {
@@ -279,7 +280,7 @@ func TestSetIdea_NoFields(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewIdeaService(fs, &fakeIdeaRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.SetIdea(context.Background(), port.SetIdeaRequest{ID: "IDEA-001"})
+	_, err := svc.SetIdea(context.Background(), driving.SetIdeaRequest{ID: "IDEA-001"})
 	if !errors.Is(err, service.ErrNoFieldsToSet) {
 		t.Fatalf("SetIdea err = %v, want ErrNoFieldsToSet", err)
 	}
@@ -297,7 +298,7 @@ func TestSetIdea_Blocked(t *testing.T) {
 	svc := service.NewIdeaService(fs, ideaRepo, &fakeHistoryRepo{})
 
 	blocked := domain.StatusBlocked
-	idea, err := svc.SetIdea(context.Background(), port.SetIdeaRequest{
+	idea, err := svc.SetIdea(context.Background(), driving.SetIdeaRequest{
 		ID: "IDEA-001", Status: &blocked,
 	})
 	if err != nil {

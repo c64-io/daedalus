@@ -8,10 +8,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newStoryCmd(creator port.StoryCreator, reader port.StoryReader, setter port.StorySetter, featureReader port.FeatureReader, editor port.Editor) *cobra.Command {
+func newStoryCmd(creator driving.StoryCreator, reader driving.StoryReader, setter driving.StorySetter, featureReader driving.FeatureReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "story",
 		Short: "Manage stories — user-visible slices of a feature",
@@ -25,7 +26,7 @@ func newStoryCmd(creator port.StoryCreator, reader port.StoryReader, setter port
 	return cmd
 }
 
-func newStoryNewCmd(creator port.StoryCreator) *cobra.Command {
+func newStoryNewCmd(creator driving.StoryCreator) *cobra.Command {
 	var (
 		featureID   string
 		title       string
@@ -59,7 +60,7 @@ func newStoryNewCmd(creator port.StoryCreator) *cobra.Command {
 				}
 			}
 
-			story, err := creator.CreateStory(cmd.Context(), port.CreateStoryRequest{
+			story, err := creator.CreateStory(cmd.Context(), driving.CreateStoryRequest{
 				FeatureID:   featureID,
 				Title:       title,
 				Description: description,
@@ -95,7 +96,7 @@ func newStoryNewCmd(creator port.StoryCreator) *cobra.Command {
 	return cmd
 }
 
-func newStoryListCmd(reader port.StoryReader) *cobra.Command {
+func newStoryListCmd(reader driving.StoryReader) *cobra.Command {
 	var featureID string
 
 	cmd := &cobra.Command{
@@ -140,7 +141,7 @@ func newStoryListCmd(reader port.StoryReader) *cobra.Command {
 	return cmd
 }
 
-func newStoryShowCmd(reader port.StoryReader, featureReader port.FeatureReader) *cobra.Command {
+func newStoryShowCmd(reader driving.StoryReader, featureReader driving.FeatureReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <story-id>",
 		Short: "Show details of a single story",
@@ -179,7 +180,7 @@ func newStoryShowCmd(reader port.StoryReader, featureReader port.FeatureReader) 
 	}
 }
 
-func newStorySetCmd(setter port.StorySetter) *cobra.Command {
+func newStorySetCmd(setter driving.StorySetter) *cobra.Command {
 	var (
 		statusRaw   string
 		title       string
@@ -195,7 +196,7 @@ func newStorySetCmd(setter port.StorySetter) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.ToUpper(strings.TrimSpace(args[0]))
 
-			req := port.SetStoryRequest{ID: id}
+			req := driving.SetStoryRequest{ID: id}
 
 			if cmd.Flags().Changed("status") {
 				s, err := domain.ParseStatus(statusRaw)
@@ -249,7 +250,7 @@ func newStorySetCmd(setter port.StorySetter) *cobra.Command {
 	return cmd
 }
 
-func newStoryEditCmd(reader port.StoryReader, setter port.StorySetter, editor port.Editor) *cobra.Command {
+func newStoryEditCmd(reader driving.StoryReader, setter driving.StorySetter, editor driven.Editor) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <story-id>",
 		Short: "Edit a story in $EDITOR",
@@ -289,7 +290,7 @@ func newStoryEditCmd(reader port.StoryReader, setter port.StorySetter, editor po
 					return parseErr
 				}
 
-				req := port.SetStoryRequest{ID: story.ID}
+				req := driving.SetStoryRequest{ID: story.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != story.ID {

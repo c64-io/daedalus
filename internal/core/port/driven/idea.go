@@ -1,4 +1,4 @@
-package port
+package driven
 
 import (
 	"context"
@@ -16,8 +16,7 @@ type IdeaRepository interface {
 	// sequence number for Idea IDs (1, 2, 3, ...).
 	NextIdeaSeq(ctx context.Context, dbDir string) (int, error)
 
-	// SaveIdea persists a fully constructed Idea. The caller is
-	// responsible for setting all fields including the ID.
+	// SaveIdea persists a fully constructed Idea.
 	SaveIdea(ctx context.Context, dbDir string, idea domain.Idea) error
 
 	// GetIdea returns the Idea with the given human-readable ID

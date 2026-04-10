@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
 
@@ -47,7 +48,7 @@ func (r *fakeStoryRepo) GetStory(_ context.Context, _ string, id string) (*domai
 			return &r.stories[i], nil
 		}
 	}
-	return nil, port.ErrStoryNotFound
+	return nil, driven.ErrStoryNotFound
 }
 
 func (r *fakeStoryRepo) ListStories(_ context.Context, _ string, featureID string) ([]domain.Story, error) {
@@ -76,7 +77,7 @@ func (r *fakeStoryRepo) UpdateStory(_ context.Context, _ string, story domain.St
 			return nil
 		}
 	}
-	return port.ErrStoryNotFound
+	return driven.ErrStoryNotFound
 }
 
 // seedRefinedFeature adds a refined feature to the fake feature repo
@@ -101,7 +102,7 @@ func TestCreateStory_Success(t *testing.T) {
 	storyRepo := &fakeStoryRepo{}
 	svc := service.NewStoryService(fs, storyRepo, featureRepo, &fakeHistoryRepo{})
 
-	story, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	story, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID:   "FEAT-001",
 		Title:       "User can log in",
 		Description: "OAuth login flow",
@@ -146,7 +147,7 @@ func TestCreateStory_MonotonicIDs(t *testing.T) {
 	svc := service.NewStoryService(fs, storyRepo, featureRepo, &fakeHistoryRepo{})
 
 	for i := 1; i <= 3; i++ {
-		story, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+		story, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 			FeatureID: "FEAT-001",
 			Title:     "story",
 		})
@@ -167,7 +168,7 @@ func TestCreateStory_TitleRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-001",
 	})
 	if !errors.Is(err, service.ErrStoryTitleRequired) {
@@ -182,7 +183,7 @@ func TestCreateStory_FeatureRequired(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		Title: "Login",
 	})
 	if !errors.Is(err, service.ErrStoryFeatureRequired) {
@@ -197,11 +198,11 @@ func TestCreateStory_FeatureNotFound(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-999",
 		Title:     "Login",
 	})
-	if !errors.Is(err, port.ErrFeatureNotFound) {
+	if !errors.Is(err, driven.ErrFeatureNotFound) {
 		t.Fatalf("CreateStory err = %v, want ErrFeatureNotFound", err)
 	}
 }
@@ -217,7 +218,7 @@ func TestCreateStory_FeatureNotRefined(t *testing.T) {
 	})
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, featureRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-001",
 		Title:     "Login",
 	})
@@ -237,7 +238,7 @@ func TestCreateStory_FeatureArchived(t *testing.T) {
 	})
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, featureRepo, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-001",
 		Title:     "Login",
 	})
@@ -252,7 +253,7 @@ func TestCreateStory_WorkspaceNotFound(t *testing.T) {
 	fs := newFakeFS("/empty")
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	_, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-001",
 		Title:     "x",
 	})
@@ -271,7 +272,7 @@ func TestCreateStory_OptionalPrioritySize(t *testing.T) {
 	storyRepo := &fakeStoryRepo{}
 	svc := service.NewStoryService(fs, storyRepo, featureRepo, &fakeHistoryRepo{})
 
-	story, err := svc.CreateStory(context.Background(), port.CreateStoryRequest{
+	story, err := svc.CreateStory(context.Background(), driving.CreateStoryRequest{
 		FeatureID: "FEAT-001",
 		Title:     "No priority or size",
 	})
@@ -297,9 +298,9 @@ func TestListStories_FilterByFeature(t *testing.T) {
 	storyRepo := &fakeStoryRepo{}
 	svc := service.NewStoryService(fs, storyRepo, featureRepo, &fakeHistoryRepo{})
 
-	_, _ = svc.CreateStory(context.Background(), port.CreateStoryRequest{FeatureID: "FEAT-001", Title: "A"})
-	_, _ = svc.CreateStory(context.Background(), port.CreateStoryRequest{FeatureID: "FEAT-002", Title: "B"})
-	_, _ = svc.CreateStory(context.Background(), port.CreateStoryRequest{FeatureID: "FEAT-001", Title: "C"})
+	_, _ = svc.CreateStory(context.Background(), driving.CreateStoryRequest{FeatureID: "FEAT-001", Title: "A"})
+	_, _ = svc.CreateStory(context.Background(), driving.CreateStoryRequest{FeatureID: "FEAT-002", Title: "B"})
+	_, _ = svc.CreateStory(context.Background(), driving.CreateStoryRequest{FeatureID: "FEAT-001", Title: "C"})
 
 	all, err := svc.ListStories(context.Background(), "", "")
 	if err != nil {
@@ -326,7 +327,7 @@ func TestGetStory_NotFound(t *testing.T) {
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
 	_, err := svc.GetStory(context.Background(), "", "STORY-999")
-	if !errors.Is(err, port.ErrStoryNotFound) {
+	if !errors.Is(err, driven.ErrStoryNotFound) {
 		t.Fatalf("GetStory err = %v, want ErrStoryNotFound", err)
 	}
 }
@@ -344,7 +345,7 @@ func TestSetStory_StatusTransition(t *testing.T) {
 	svc := service.NewStoryService(fs, storyRepo, &fakeFeatureRepo{}, histRepo)
 
 	refined := domain.StatusRefined
-	story, err := svc.SetStory(context.Background(), port.SetStoryRequest{
+	story, err := svc.SetStory(context.Background(), driving.SetStoryRequest{
 		ID: "STORY-001", Status: &refined,
 	})
 	if err != nil {
@@ -372,7 +373,7 @@ func TestSetStory_PriorityAndSize(t *testing.T) {
 
 	p := domain.PriorityCritical
 	sz := domain.Size13
-	story, err := svc.SetStory(context.Background(), port.SetStoryRequest{
+	story, err := svc.SetStory(context.Background(), driving.SetStoryRequest{
 		ID: "STORY-001", Priority: &p, Size: &sz,
 	})
 	if err != nil {
@@ -401,7 +402,7 @@ func TestSetStory_InvalidTransition(t *testing.T) {
 	svc := service.NewStoryService(fs, storyRepo, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
 	done := domain.StatusDone
-	_, err := svc.SetStory(context.Background(), port.SetStoryRequest{
+	_, err := svc.SetStory(context.Background(), driving.SetStoryRequest{
 		ID: "STORY-001", Status: &done,
 	})
 	if !errors.Is(err, domain.ErrInvalidTransition) {
@@ -416,7 +417,7 @@ func TestSetStory_NoFields(t *testing.T) {
 	fs.existing["/proj/d7/.db"] = true
 	svc := service.NewStoryService(fs, &fakeStoryRepo{}, &fakeFeatureRepo{}, &fakeHistoryRepo{})
 
-	_, err := svc.SetStory(context.Background(), port.SetStoryRequest{ID: "STORY-001"})
+	_, err := svc.SetStory(context.Background(), driving.SetStoryRequest{ID: "STORY-001"})
 	if !errors.Is(err, service.ErrNoFieldsToSet) {
 		t.Fatalf("SetStory err = %v, want ErrNoFieldsToSet", err)
 	}

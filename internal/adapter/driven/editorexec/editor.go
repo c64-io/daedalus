@@ -5,11 +5,11 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // Compile-time assertion that Editor satisfies the driven port.
-var _ port.Editor = (*Editor)(nil)
+var _ driven.Editor = (*Editor)(nil)
 
 // Editor launches the user's $EDITOR on a temporary file and returns
 // the edited content. It falls back to "vi" when $EDITOR is unset.

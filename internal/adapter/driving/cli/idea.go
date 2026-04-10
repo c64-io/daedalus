@@ -8,10 +8,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.IdeaSetter, editor port.Editor) *cobra.Command {
+func newIdeaCmd(creator driving.IdeaCreator, reader driving.IdeaReader, setter driving.IdeaSetter, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "idea",
 		Short: "Manage ideas — the top of the d7 hierarchy",
@@ -25,7 +26,7 @@ func newIdeaCmd(creator port.IdeaCreator, reader port.IdeaReader, setter port.Id
 	return cmd
 }
 
-func newIdeaNewCmd(creator port.IdeaCreator) *cobra.Command {
+func newIdeaNewCmd(creator driving.IdeaCreator) *cobra.Command {
 	var (
 		title       string
 		description string
@@ -36,7 +37,7 @@ func newIdeaNewCmd(creator port.IdeaCreator) *cobra.Command {
 		Use:   "new",
 		Short: "Create a new idea",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			idea, err := creator.CreateIdea(cmd.Context(), port.CreateIdeaRequest{
+			idea, err := creator.CreateIdea(cmd.Context(), driving.CreateIdeaRequest{
 				Title:       title,
 				Description: description,
 			})
@@ -65,7 +66,7 @@ func newIdeaNewCmd(creator port.IdeaCreator) *cobra.Command {
 	return cmd
 }
 
-func newIdeaListCmd(reader port.IdeaReader) *cobra.Command {
+func newIdeaListCmd(reader driving.IdeaReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all ideas in the workspace",
@@ -92,7 +93,7 @@ func newIdeaListCmd(reader port.IdeaReader) *cobra.Command {
 	}
 }
 
-func newIdeaShowCmd(reader port.IdeaReader) *cobra.Command {
+func newIdeaShowCmd(reader driving.IdeaReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <idea-id>",
 		Short: "Show details of a single idea",
@@ -116,7 +117,7 @@ func newIdeaShowCmd(reader port.IdeaReader) *cobra.Command {
 	}
 }
 
-func newIdeaSetCmd(setter port.IdeaSetter) *cobra.Command {
+func newIdeaSetCmd(setter driving.IdeaSetter) *cobra.Command {
 	var (
 		statusRaw   string
 		title       string
@@ -130,7 +131,7 @@ func newIdeaSetCmd(setter port.IdeaSetter) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.ToUpper(strings.TrimSpace(args[0]))
 
-			req := port.SetIdeaRequest{ID: id}
+			req := driving.SetIdeaRequest{ID: id}
 
 			if cmd.Flags().Changed("status") {
 				s, err := domain.ParseStatus(statusRaw)
@@ -168,7 +169,7 @@ func newIdeaSetCmd(setter port.IdeaSetter) *cobra.Command {
 	return cmd
 }
 
-func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.Editor) *cobra.Command {
+func newIdeaEditCmd(reader driving.IdeaReader, setter driving.IdeaSetter, editor driven.Editor) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <idea-id>",
 		Short: "Edit an idea in $EDITOR",
@@ -196,7 +197,7 @@ func newIdeaEditCmd(reader port.IdeaReader, setter port.IdeaSetter, editor port.
 					return parseErr
 				}
 
-				req := port.SetIdeaRequest{ID: idea.ID}
+				req := driving.SetIdeaRequest{ID: idea.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != idea.ID {

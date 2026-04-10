@@ -8,10 +8,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newFeatureCmd(creator port.FeatureCreator, reader port.FeatureReader, setter port.FeatureSetter, epicReader port.EpicReader, editor port.Editor) *cobra.Command {
+func newFeatureCmd(creator driving.FeatureCreator, reader driving.FeatureReader, setter driving.FeatureSetter, epicReader driving.EpicReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "feature",
 		Short: "Manage features — coherent chunks of capability under an epic",
@@ -25,7 +26,7 @@ func newFeatureCmd(creator port.FeatureCreator, reader port.FeatureReader, sette
 	return cmd
 }
 
-func newFeatureNewCmd(creator port.FeatureCreator) *cobra.Command {
+func newFeatureNewCmd(creator driving.FeatureCreator) *cobra.Command {
 	var (
 		epicID      string
 		title       string
@@ -59,7 +60,7 @@ func newFeatureNewCmd(creator port.FeatureCreator) *cobra.Command {
 				}
 			}
 
-			feature, err := creator.CreateFeature(cmd.Context(), port.CreateFeatureRequest{
+			feature, err := creator.CreateFeature(cmd.Context(), driving.CreateFeatureRequest{
 				EpicID:      epicID,
 				Title:       title,
 				Description: description,
@@ -95,7 +96,7 @@ func newFeatureNewCmd(creator port.FeatureCreator) *cobra.Command {
 	return cmd
 }
 
-func newFeatureListCmd(reader port.FeatureReader) *cobra.Command {
+func newFeatureListCmd(reader driving.FeatureReader) *cobra.Command {
 	var epicID string
 
 	cmd := &cobra.Command{
@@ -140,7 +141,7 @@ func newFeatureListCmd(reader port.FeatureReader) *cobra.Command {
 	return cmd
 }
 
-func newFeatureShowCmd(reader port.FeatureReader, epicReader port.EpicReader) *cobra.Command {
+func newFeatureShowCmd(reader driving.FeatureReader, epicReader driving.EpicReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <feature-id>",
 		Short: "Show details of a single feature",
@@ -179,7 +180,7 @@ func newFeatureShowCmd(reader port.FeatureReader, epicReader port.EpicReader) *c
 	}
 }
 
-func newFeatureSetCmd(setter port.FeatureSetter) *cobra.Command {
+func newFeatureSetCmd(setter driving.FeatureSetter) *cobra.Command {
 	var (
 		statusRaw   string
 		title       string
@@ -195,7 +196,7 @@ func newFeatureSetCmd(setter port.FeatureSetter) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.ToUpper(strings.TrimSpace(args[0]))
 
-			req := port.SetFeatureRequest{ID: id}
+			req := driving.SetFeatureRequest{ID: id}
 
 			if cmd.Flags().Changed("status") {
 				s, err := domain.ParseStatus(statusRaw)
@@ -249,7 +250,7 @@ func newFeatureSetCmd(setter port.FeatureSetter) *cobra.Command {
 	return cmd
 }
 
-func newFeatureEditCmd(reader port.FeatureReader, setter port.FeatureSetter, editor port.Editor) *cobra.Command {
+func newFeatureEditCmd(reader driving.FeatureReader, setter driving.FeatureSetter, editor driven.Editor) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit <feature-id>",
 		Short: "Edit a feature in $EDITOR",
@@ -289,7 +290,7 @@ func newFeatureEditCmd(reader port.FeatureReader, setter port.FeatureSetter, edi
 					return parseErr
 				}
 
-				req := port.SetFeatureRequest{ID: feature.ID}
+				req := driving.SetFeatureRequest{ID: feature.ID}
 
 				// Warn about read-only fields.
 				if val, ok := fm["id"]; ok && val != feature.ID {
