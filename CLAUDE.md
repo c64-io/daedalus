@@ -383,24 +383,36 @@ Implemented:
 - Editor-based editing uses a shared edit loop: if YAML parsing or
   validation fails, the editor re-opens with the error prepended as
   a comment.
-- Domain types: `Idea`, `Epic`, `Feature`, `Status` (with transition
-  state machine including `blocked`), `Target`, `Priority`, `Size`,
-  `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
+- `d7 story new --feature FEAT-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates a Story under a parent Feature. The parent must be at least
+  `refined`; draft and archived Features are rejected.
+- `d7 story list [--feature FEAT-XXX]` lists all stories or filters
+  by parent.
+- `d7 story show <id>` shows story details including parent Feature info.
+- `d7 story set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- `d7 story edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  feature, status, title, priority, size, created) plus the description
+  body. Changed fields are applied via `SetStory`.
+- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Status` (with
+  transition state machine including `blocked`), `Target`, `Priority`,
+  `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
 - Ports: `WorkspaceInitializer`, `WorkspaceStatusReader`,
   `WorkspaceDescriptionReader`, `WorkspaceDescriptionWriter`,
   `WorkspaceRepository`, `FileSystem`, `Editor`,
   `IdeaCreator`, `IdeaReader`, `IdeaSetter`, `IdeaRepository`,
   `EpicCreator`, `EpicReader`, `EpicSetter`, `EpicRepository`,
   `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
-  `FeatureRepository`, `HistoryRepository`.
+  `FeatureRepository`, `StoryCreator`, `StoryReader`, `StorySetter`,
+  `StoryRepository`, `HistoryRepository`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 
-Not yet implemented: stories, specs, scenarios, the sparse graph,
-Gherkin export, AI assist, the agentic generator, worktree isolation,
-regeneration, the ScenarioRunner port, and the verify loop. All are
-planned surface area and should be built incrementally, each behind
-its own port, each with the same discipline.
+Not yet implemented: specs, scenarios, the sparse graph, Gherkin export,
+AI assist, the agentic generator, worktree isolation, regeneration, the
+ScenarioRunner port, and the verify loop. All are planned surface area
+and should be built incrementally, each behind its own port, each with
+the same discipline.
 
 ## Build & verify
 
@@ -432,6 +444,12 @@ EDITOR=cat /tmp/d7 epic edit EPIC-001
 /tmp/d7 feature list --epic EPIC-001
 /tmp/d7 feature show FEAT-001
 EDITOR=cat /tmp/d7 feature edit FEAT-001
+/tmp/d7 feature set FEAT-001 --status refined
+/tmp/d7 story new --feature FEAT-001 --title "User can log in"
+/tmp/d7 story list --feature FEAT-001
+/tmp/d7 story show STORY-001
+/tmp/d7 story set STORY-001 --status refined
+EDITOR=cat /tmp/d7 story edit STORY-001
 ```
 
 ## Working in this repo (for Claude Code sessions)
