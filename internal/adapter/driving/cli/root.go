@@ -29,6 +29,9 @@ func NewRootCmd(
 	specCreator driving.SpecCreator,
 	specReader driving.SpecReader,
 	specSetter driving.SpecSetter,
+	scenarioCreator driving.ScenarioCreator,
+	scenarioReader driving.ScenarioReader,
+	scenarioSetter driving.ScenarioSetter,
 	editor driven.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
@@ -46,5 +49,6 @@ func NewRootCmd(
 	root.AddCommand(newFeatureCmd(featureCreator, featureReader, featureSetter, epicReader, editor))
 	root.AddCommand(newStoryCmd(storyCreator, storyReader, storySetter, featureReader, editor))
 	root.AddCommand(newSpecCmd(specCreator, specReader, specSetter, storyReader, editor))
+	root.AddCommand(newScenarioCmd(scenarioCreator, scenarioReader, scenarioSetter, specReader, editor))
 	return root
 }

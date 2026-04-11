@@ -283,6 +283,7 @@ internal/core/
       feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader, FeatureSetter
       story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
       spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader, SpecSetter
+      scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -292,6 +293,7 @@ internal/core/
       feature.go                              # FeatureRepository, ErrFeatureNotFound
       story.go                                # StoryRepository, ErrStoryNotFound
       spec.go                                 # SpecRepository, ErrSpecNotFound
+      scenario.go                             # ScenarioRepository, ErrScenarioNotFound
       history.go                              # HistoryRepository
       filesystem.go                           # FileSystem
       editor.go                               # Editor ($EDITOR)
@@ -412,10 +414,31 @@ Implemented:
 - `d7 spec edit <id>` opens `$EDITOR` with YAML front-matter (id,
   story, status, title, created) plus the description body. Changed
   fields are applied via `SetSpec`.
-- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Spec`, `Status`
-  (with transition state machine including `blocked`), `Target`,
-  `Priority`, `Size`, `HistoryEntry`, `ProjectDescription`,
-  `FrontMatterField`.
+- `d7 scenario new --spec SPEC-XXX --title "..." [--given] [--when] [--then] [--tag]`
+  creates a Scenario under a parent Spec. The parent must be at least
+  `refined`. Repeatable `--given`/`--when`/`--then` flags seed plain-text
+  steps; richer authoring (data tables, doc strings) uses the editor flow.
+  Repeatable `--tag` seeds user tags (stored without the leading `@`).
+- `d7 scenario list [--spec SPEC-XXX]` lists all scenarios or filters
+  by parent. The `STEPS` column summarizes shape as `NG/NW/NT`.
+- `d7 scenario show <id>` shows metadata and the rendered Gherkin
+  block (user tags, Scenario header, Given/When/Then with `And`
+  continuations, data tables, and doc strings). The mandatory
+  `@d7:<ID>` tag is added at export time, not stored or shown here.
+- `d7 scenario set <id> --status <status> [--title] [--tag]` updates
+  scalar fields with state-machine validation and history tracking.
+  Step editing goes through the editor flow.
+- `d7 scenario edit <id>` opens `$EDITOR` with a structured YAML
+  document (read-only id/spec/created as comments, editable
+  status/title/tags/given/when/then). Steps may carry optional
+  `data_table` or `doc_string` payloads. Changed fields are diffed
+  structurally and applied via `SetScenario`.
+- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Spec`, `Scenario`,
+  `Step`, `DataTable`, `Status` (with transition state machine
+  including `blocked`), `Target`, `Priority`, `Size`, `HistoryEntry`,
+  `ProjectDescription`, `FrontMatterField`. Domain also exposes
+  `FormatScenarioAsGherkin` (pure) and `FormatScenarioYAML` /
+  `ParseScenarioYAML` (round-trip via `gopkg.in/yaml.v3`).
 - Ports are split into `port/driving` (inbound, CLI → service) and
   `port/driven` (outbound, service → adapter). Driving:
   `WorkspaceInitializer`, `WorkspaceStatusReader`,
@@ -424,18 +447,20 @@ Implemented:
   `EpicCreator`, `EpicReader`, `EpicSetter`,
   `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
   `StoryCreator`, `StoryReader`, `StorySetter`,
-  `SpecCreator`, `SpecReader`, `SpecSetter`.
+  `SpecCreator`, `SpecReader`, `SpecSetter`,
+  `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
-  `HistoryRepository`, `FileSystem`, `Editor`.
+  `ScenarioRepository`, `HistoryRepository`, `FileSystem`, `Editor`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 
-Not yet implemented: scenarios, the sparse graph, Gherkin export,
-AI assist, the agentic generator, worktree isolation, regeneration, the
-ScenarioRunner port, and the verify loop. All are planned surface area
-and should be built incrementally, each behind its own port, each with
-the same discipline.
+Not yet implemented: the sparse graph, Gherkin export (including the
+mandatory `@d7:<ID>` tag prepended at export time), AI assist, the
+agentic generator, worktree isolation, regeneration, the ScenarioRunner
+port, and the verify loop. All are planned surface area and should be
+built incrementally, each behind its own port, each with the same
+discipline.
 
 ## Build & verify
 
@@ -478,6 +503,15 @@ EDITOR=cat /tmp/d7 story edit STORY-001
 /tmp/d7 spec show SPEC-001
 /tmp/d7 spec set SPEC-001 --status refined
 EDITOR=cat /tmp/d7 spec edit SPEC-001
+/tmp/d7 scenario new --spec SPEC-001 --title "User logs in with valid OAuth token" \
+    --given "a user has a valid OAuth token" \
+    --when  "the user signs in" \
+    --then  "the user is redirected to the dashboard" \
+    --tag happy-path
+/tmp/d7 scenario list --spec SPEC-001
+/tmp/d7 scenario show SCEN-001
+/tmp/d7 scenario set SCEN-001 --status refined
+EDITOR=cat /tmp/d7 scenario edit SCEN-001
 ```
 
 ## Working in this repo (for Claude Code sessions)
