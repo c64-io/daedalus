@@ -282,6 +282,7 @@ internal/core/
       epic.go                                 # CreateEpicRequest, EpicCreator, EpicReader, EpicSetter
       feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader, FeatureSetter
       story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
+      spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader, SpecSetter
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -290,6 +291,7 @@ internal/core/
       epic.go                                 # EpicRepository, ErrEpicNotFound
       feature.go                              # FeatureRepository, ErrFeatureNotFound
       story.go                                # StoryRepository, ErrStoryNotFound
+      spec.go                                 # SpecRepository, ErrSpecNotFound
       history.go                              # HistoryRepository
       filesystem.go                           # FileSystem
       editor.go                               # Editor ($EDITOR)
@@ -398,9 +400,22 @@ Implemented:
 - `d7 story edit <id>` opens `$EDITOR` with YAML front-matter (id,
   feature, status, title, priority, size, created) plus the description
   body. Changed fields are applied via `SetStory`.
-- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Status` (with
-  transition state machine including `blocked`), `Target`, `Priority`,
-  `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
+- `d7 spec new --story STORY-XXX --title "..." [--description] [--expand]`
+  creates a Spec under a parent Story. The parent must be at least
+  `refined`; draft and archived Stories are rejected. Specs do not
+  carry priority or size — they are prose, not work items.
+- `d7 spec list [--story STORY-XXX]` lists all specs or filters
+  by parent.
+- `d7 spec show <id>` shows spec details including parent Story info.
+- `d7 spec set <id> --status <status> [--title] [--description]`
+  updates fields with state-machine validation and history tracking.
+- `d7 spec edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  story, status, title, created) plus the description body. Changed
+  fields are applied via `SetSpec`.
+- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Spec`, `Status`
+  (with transition state machine including `blocked`), `Target`,
+  `Priority`, `Size`, `HistoryEntry`, `ProjectDescription`,
+  `FrontMatterField`.
 - Ports are split into `port/driving` (inbound, CLI → service) and
   `port/driven` (outbound, service → adapter). Driving:
   `WorkspaceInitializer`, `WorkspaceStatusReader`,
@@ -408,14 +423,15 @@ Implemented:
   `IdeaCreator`, `IdeaReader`, `IdeaSetter`,
   `EpicCreator`, `EpicReader`, `EpicSetter`,
   `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
-  `StoryCreator`, `StoryReader`, `StorySetter`.
+  `StoryCreator`, `StoryReader`, `StorySetter`,
+  `SpecCreator`, `SpecReader`, `SpecSetter`.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
-  `FeatureRepository`, `StoryRepository`, `HistoryRepository`,
-  `FileSystem`, `Editor`.
+  `FeatureRepository`, `StoryRepository`, `SpecRepository`,
+  `HistoryRepository`, `FileSystem`, `Editor`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 
-Not yet implemented: specs, scenarios, the sparse graph, Gherkin export,
+Not yet implemented: scenarios, the sparse graph, Gherkin export,
 AI assist, the agentic generator, worktree isolation, regeneration, the
 ScenarioRunner port, and the verify loop. All are planned surface area
 and should be built incrementally, each behind its own port, each with
@@ -457,6 +473,11 @@ EDITOR=cat /tmp/d7 feature edit FEAT-001
 /tmp/d7 story show STORY-001
 /tmp/d7 story set STORY-001 --status refined
 EDITOR=cat /tmp/d7 story edit STORY-001
+/tmp/d7 spec new --story STORY-001 --title "Login rules" --description "OAuth only; password login is out of scope."
+/tmp/d7 spec list --story STORY-001
+/tmp/d7 spec show SPEC-001
+/tmp/d7 spec set SPEC-001 --status refined
+EDITOR=cat /tmp/d7 spec edit SPEC-001
 ```
 
 ## Working in this repo (for Claude Code sessions)
