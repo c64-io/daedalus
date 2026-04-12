@@ -284,6 +284,8 @@ internal/core/
       story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
       spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader, SpecSetter
       scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
+      link.go                                 # AddLinkRequest, LinkAdder, LinkRemover, LinkReader,
+                                              #   AddRefRequest, RefAdder, RefRemover, RefReader, ResolvedLink
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -294,6 +296,8 @@ internal/core/
       story.go                                # StoryRepository, ErrStoryNotFound
       spec.go                                 # SpecRepository, ErrSpecNotFound
       scenario.go                             # ScenarioRepository, ErrScenarioNotFound
+      link.go                                 # LinkRepository, RefRepository, EntityResolver,
+                                              #   ErrLinkNotFound, ErrRefNotFound, ErrEntityNotFound
       history.go                              # HistoryRepository
       filesystem.go                           # FileSystem
       editor.go                               # Editor ($EDITOR)
@@ -433,12 +437,32 @@ Implemented:
   status/title/tags/given/when/then). Steps may carry optional
   `data_table` or `doc_string` payloads. Changed fields are diffed
   structurally and applied via `SetScenario`.
+- `d7 link add <from> <kind> <to>` creates a typed link between two
+  entities. Valid kinds: `blocked-by`, `relates-to`, `duplicates`.
+  Cross-type links are allowed (e.g. STORY blocked-by EPIC). Self-links
+  are rejected. Duplicate links are idempotent. For `blocked-by`, cycle
+  detection prevents circular dependency chains. Symmetric kinds
+  (`relates-to`, `duplicates`) are stored once and displayed both ways.
+- `d7 link rm <from> <kind> <to>` removes a link. For symmetric kinds,
+  also checks the reverse direction.
+- `d7 link list [<entity-id>]` lists all links or those touching a
+  specific entity, with resolved titles.
+- `d7 ref add <entity-id> <url> [--label <s>]` attaches an external
+  reference (URL) to any entity. Optional label for display.
+  Duplicates are idempotent.
+- `d7 ref rm <entity-id> <url>` removes an external reference.
+- `d7 ref list [<entity-id>]` lists all refs or those for a specific
+  entity.
+- All `show` commands for all 6 entity types render links and refs
+  inline when present (grouped as Blocked by / Blocks / Relates to /
+  Duplicates / Refs sections). Hidden when empty.
 - Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Spec`, `Scenario`,
-  `Step`, `DataTable`, `Status` (with transition state machine
-  including `blocked`), `Target`, `Priority`, `Size`, `HistoryEntry`,
-  `ProjectDescription`, `FrontMatterField`. Domain also exposes
-  `FormatScenarioAsGherkin` (pure) and `FormatScenarioYAML` /
-  `ParseScenarioYAML` (round-trip via `gopkg.in/yaml.v3`).
+  `Step`, `DataTable`, `Link`, `LinkKind`, `Ref`, `Status` (with
+  transition state machine including `blocked`), `Target`, `Priority`,
+  `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
+  Domain also exposes `FormatScenarioAsGherkin` (pure),
+  `FormatScenarioYAML` / `ParseScenarioYAML` (round-trip via
+  `gopkg.in/yaml.v3`), and `ParseEntityPrefix` / `ParseLinkKind`.
 - Ports are split into `port/driving` (inbound, CLI → service) and
   `port/driven` (outbound, service → adapter). Driving:
   `WorkspaceInitializer`, `WorkspaceStatusReader`,
@@ -448,19 +472,21 @@ Implemented:
   `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
   `StoryCreator`, `StoryReader`, `StorySetter`,
   `SpecCreator`, `SpecReader`, `SpecSetter`,
-  `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`.
+  `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`,
+  `LinkAdder`, `LinkRemover`, `LinkReader`,
+  `RefAdder`, `RefRemover`, `RefReader`.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
-  `ScenarioRepository`, `HistoryRepository`, `FileSystem`, `Editor`.
+  `ScenarioRepository`, `LinkRepository`, `RefRepository`,
+  `EntityResolver`, `HistoryRepository`, `FileSystem`, `Editor`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
   (`$EDITOR` launcher), `cli` (cobra).
 
-Not yet implemented: the sparse graph, Gherkin export (including the
-mandatory `@d7:<ID>` tag prepended at export time), AI assist, the
-agentic generator, worktree isolation, regeneration, the ScenarioRunner
-port, and the verify loop. All are planned surface area and should be
-built incrementally, each behind its own port, each with the same
-discipline.
+Not yet implemented: Gherkin export (including the mandatory
+`@d7:<ID>` tag prepended at export time), AI assist, the agentic
+generator, worktree isolation, regeneration, the ScenarioRunner port,
+and the verify loop. All are planned surface area and should be built
+incrementally, each behind its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -512,6 +538,18 @@ EDITOR=cat /tmp/d7 spec edit SPEC-001
 /tmp/d7 scenario show SCEN-001
 /tmp/d7 scenario set SCEN-001 --status refined
 EDITOR=cat /tmp/d7 scenario edit SCEN-001
+# Cross-links and external refs
+/tmp/d7 story new --feature FEAT-001 --title "User can reset password"
+/tmp/d7 link add STORY-001 blocked-by STORY-002
+/tmp/d7 link add STORY-001 relates-to EPIC-001
+/tmp/d7 link list STORY-001
+/tmp/d7 story show STORY-001                # should show Blocked by + Relates to sections
+/tmp/d7 ref add STORY-001 https://figma.com/login --label "Login mockup"
+/tmp/d7 ref add STORY-001 https://github.com/c64-io/foo/issues/42
+/tmp/d7 ref list STORY-001
+/tmp/d7 story show STORY-001                # now shows Refs section too
+/tmp/d7 link rm STORY-001 blocked-by STORY-002
+/tmp/d7 ref rm STORY-001 https://figma.com/login
 ```
 
 ## Working in this repo (for Claude Code sessions)

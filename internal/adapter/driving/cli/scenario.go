@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newScenarioCmd(creator driving.ScenarioCreator, reader driving.ScenarioReader, setter driving.ScenarioSetter, specReader driving.SpecReader, editor driven.Editor) *cobra.Command {
+func newScenarioCmd(creator driving.ScenarioCreator, reader driving.ScenarioReader, setter driving.ScenarioSetter, specReader driving.SpecReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scenario",
 		Short: "Manage scenarios — Given/When/Then steps attached to a spec",
@@ -20,7 +20,7 @@ func newScenarioCmd(creator driving.ScenarioCreator, reader driving.ScenarioRead
 
 	cmd.AddCommand(newScenarioNewCmd(creator))
 	cmd.AddCommand(newScenarioListCmd(reader))
-	cmd.AddCommand(newScenarioShowCmd(reader, specReader))
+	cmd.AddCommand(newScenarioShowCmd(reader, specReader, linkReader, refReader))
 	cmd.AddCommand(newScenarioSetCmd(setter))
 	cmd.AddCommand(newScenarioEditCmd(reader, setter, editor))
 	return cmd
@@ -116,7 +116,7 @@ func newScenarioListCmd(reader driving.ScenarioReader) *cobra.Command {
 	return cmd
 }
 
-func newScenarioShowCmd(reader driving.ScenarioReader, specReader driving.SpecReader) *cobra.Command {
+func newScenarioShowCmd(reader driving.ScenarioReader, specReader driving.SpecReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <scenario-id>",
 		Short: "Show details of a single scenario, with rendered Gherkin",
@@ -144,6 +144,8 @@ func newScenarioShowCmd(reader driving.ScenarioReader, specReader driving.SpecRe
 				fmt.Fprintf(out, "Tags:    %s\n", strings.Join(scen.Tags, ", "))
 			}
 			fmt.Fprintf(out, "Created: %s\n", scen.CreatedAt.Format("2006-01-02 15:04:05"))
+
+			renderLinksAndRefs(cmd.Context(), out, scen.ID, linkReader, refReader)
 
 			fmt.Fprintln(out)
 			fmt.Fprint(out, domain.FormatScenarioAsGherkin(*scen))

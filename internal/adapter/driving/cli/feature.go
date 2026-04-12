@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newFeatureCmd(creator driving.FeatureCreator, reader driving.FeatureReader, setter driving.FeatureSetter, epicReader driving.EpicReader, editor driven.Editor) *cobra.Command {
+func newFeatureCmd(creator driving.FeatureCreator, reader driving.FeatureReader, setter driving.FeatureSetter, epicReader driving.EpicReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "feature",
 		Short: "Manage features — coherent chunks of capability under an epic",
@@ -20,7 +20,7 @@ func newFeatureCmd(creator driving.FeatureCreator, reader driving.FeatureReader,
 
 	cmd.AddCommand(newFeatureNewCmd(creator))
 	cmd.AddCommand(newFeatureListCmd(reader))
-	cmd.AddCommand(newFeatureShowCmd(reader, epicReader))
+	cmd.AddCommand(newFeatureShowCmd(reader, epicReader, linkReader, refReader))
 	cmd.AddCommand(newFeatureSetCmd(setter))
 	cmd.AddCommand(newFeatureEditCmd(reader, setter, editor))
 	return cmd
@@ -141,7 +141,7 @@ func newFeatureListCmd(reader driving.FeatureReader) *cobra.Command {
 	return cmd
 }
 
-func newFeatureShowCmd(reader driving.FeatureReader, epicReader driving.EpicReader) *cobra.Command {
+func newFeatureShowCmd(reader driving.FeatureReader, epicReader driving.EpicReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <feature-id>",
 		Short: "Show details of a single feature",
@@ -175,6 +175,7 @@ func newFeatureShowCmd(reader driving.FeatureReader, epicReader driving.EpicRead
 				fmt.Fprintf(out, "Size:        %d\n", feature.Size)
 			}
 			fmt.Fprintf(out, "Created:     %s\n", feature.CreatedAt.Format("2006-01-02 15:04:05"))
+			renderLinksAndRefs(cmd.Context(), out, feature.ID, linkReader, refReader)
 			return nil
 		},
 	}

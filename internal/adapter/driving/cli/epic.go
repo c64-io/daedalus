@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newEpicCmd(creator driving.EpicCreator, reader driving.EpicReader, setter driving.EpicSetter, ideaReader driving.IdeaReader, editor driven.Editor) *cobra.Command {
+func newEpicCmd(creator driving.EpicCreator, reader driving.EpicReader, setter driving.EpicSetter, ideaReader driving.IdeaReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "epic",
 		Short: "Manage epics — major capabilities under an idea",
@@ -20,7 +20,7 @@ func newEpicCmd(creator driving.EpicCreator, reader driving.EpicReader, setter d
 
 	cmd.AddCommand(newEpicNewCmd(creator))
 	cmd.AddCommand(newEpicListCmd(reader))
-	cmd.AddCommand(newEpicShowCmd(reader, ideaReader))
+	cmd.AddCommand(newEpicShowCmd(reader, ideaReader, linkReader, refReader))
 	cmd.AddCommand(newEpicSetCmd(setter))
 	cmd.AddCommand(newEpicEditCmd(reader, setter, editor))
 	return cmd
@@ -141,7 +141,7 @@ func newEpicListCmd(reader driving.EpicReader) *cobra.Command {
 	return cmd
 }
 
-func newEpicShowCmd(reader driving.EpicReader, ideaReader driving.IdeaReader) *cobra.Command {
+func newEpicShowCmd(reader driving.EpicReader, ideaReader driving.IdeaReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <epic-id>",
 		Short: "Show details of a single epic",
@@ -175,6 +175,7 @@ func newEpicShowCmd(reader driving.EpicReader, ideaReader driving.IdeaReader) *c
 				fmt.Fprintf(out, "Size:        %d\n", epic.Size)
 			}
 			fmt.Fprintf(out, "Created:     %s\n", epic.CreatedAt.Format("2006-01-02 15:04:05"))
+			renderLinksAndRefs(cmd.Context(), out, epic.ID, linkReader, refReader)
 			return nil
 		},
 	}

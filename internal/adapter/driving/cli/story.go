@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newStoryCmd(creator driving.StoryCreator, reader driving.StoryReader, setter driving.StorySetter, featureReader driving.FeatureReader, editor driven.Editor) *cobra.Command {
+func newStoryCmd(creator driving.StoryCreator, reader driving.StoryReader, setter driving.StorySetter, featureReader driving.FeatureReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "story",
 		Short: "Manage stories — user-visible slices of a feature",
@@ -20,7 +20,7 @@ func newStoryCmd(creator driving.StoryCreator, reader driving.StoryReader, sette
 
 	cmd.AddCommand(newStoryNewCmd(creator))
 	cmd.AddCommand(newStoryListCmd(reader))
-	cmd.AddCommand(newStoryShowCmd(reader, featureReader))
+	cmd.AddCommand(newStoryShowCmd(reader, featureReader, linkReader, refReader))
 	cmd.AddCommand(newStorySetCmd(setter))
 	cmd.AddCommand(newStoryEditCmd(reader, setter, editor))
 	return cmd
@@ -141,7 +141,7 @@ func newStoryListCmd(reader driving.StoryReader) *cobra.Command {
 	return cmd
 }
 
-func newStoryShowCmd(reader driving.StoryReader, featureReader driving.FeatureReader) *cobra.Command {
+func newStoryShowCmd(reader driving.StoryReader, featureReader driving.FeatureReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <story-id>",
 		Short: "Show details of a single story",
@@ -175,6 +175,7 @@ func newStoryShowCmd(reader driving.StoryReader, featureReader driving.FeatureRe
 				fmt.Fprintf(out, "Size:        %d\n", story.Size)
 			}
 			fmt.Fprintf(out, "Created:     %s\n", story.CreatedAt.Format("2006-01-02 15:04:05"))
+			renderLinksAndRefs(cmd.Context(), out, story.ID, linkReader, refReader)
 			return nil
 		},
 	}

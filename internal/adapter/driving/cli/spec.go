@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newSpecCmd(creator driving.SpecCreator, reader driving.SpecReader, setter driving.SpecSetter, storyReader driving.StoryReader, editor driven.Editor) *cobra.Command {
+func newSpecCmd(creator driving.SpecCreator, reader driving.SpecReader, setter driving.SpecSetter, storyReader driving.StoryReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spec",
 		Short: "Manage specs — prose requirements attached to a story",
@@ -20,7 +20,7 @@ func newSpecCmd(creator driving.SpecCreator, reader driving.SpecReader, setter d
 
 	cmd.AddCommand(newSpecNewCmd(creator))
 	cmd.AddCommand(newSpecListCmd(reader))
-	cmd.AddCommand(newSpecShowCmd(reader, storyReader))
+	cmd.AddCommand(newSpecShowCmd(reader, storyReader, linkReader, refReader))
 	cmd.AddCommand(newSpecSetCmd(setter))
 	cmd.AddCommand(newSpecEditCmd(reader, setter, editor))
 	return cmd
@@ -109,7 +109,7 @@ func newSpecListCmd(reader driving.SpecReader) *cobra.Command {
 	return cmd
 }
 
-func newSpecShowCmd(reader driving.SpecReader, storyReader driving.StoryReader) *cobra.Command {
+func newSpecShowCmd(reader driving.SpecReader, storyReader driving.StoryReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <spec-id>",
 		Short: "Show details of a single spec",
@@ -137,6 +137,7 @@ func newSpecShowCmd(reader driving.SpecReader, storyReader driving.StoryReader) 
 				fmt.Fprintf(out, "Description: %s\n", spec.Description)
 			}
 			fmt.Fprintf(out, "Created:     %s\n", spec.CreatedAt.Format("2006-01-02 15:04:05"))
+			renderLinksAndRefs(cmd.Context(), out, spec.ID, linkReader, refReader)
 			return nil
 		},
 	}

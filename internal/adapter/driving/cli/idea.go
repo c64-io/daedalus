@@ -12,7 +12,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newIdeaCmd(creator driving.IdeaCreator, reader driving.IdeaReader, setter driving.IdeaSetter, editor driven.Editor) *cobra.Command {
+func newIdeaCmd(creator driving.IdeaCreator, reader driving.IdeaReader, setter driving.IdeaSetter, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "idea",
 		Short: "Manage ideas — the top of the d7 hierarchy",
@@ -20,7 +20,7 @@ func newIdeaCmd(creator driving.IdeaCreator, reader driving.IdeaReader, setter d
 
 	cmd.AddCommand(newIdeaNewCmd(creator))
 	cmd.AddCommand(newIdeaListCmd(reader))
-	cmd.AddCommand(newIdeaShowCmd(reader))
+	cmd.AddCommand(newIdeaShowCmd(reader, linkReader, refReader))
 	cmd.AddCommand(newIdeaSetCmd(setter))
 	cmd.AddCommand(newIdeaEditCmd(reader, setter, editor))
 	return cmd
@@ -93,7 +93,7 @@ func newIdeaListCmd(reader driving.IdeaReader) *cobra.Command {
 	}
 }
 
-func newIdeaShowCmd(reader driving.IdeaReader) *cobra.Command {
+func newIdeaShowCmd(reader driving.IdeaReader, linkReader driving.LinkReader, refReader driving.RefReader) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <idea-id>",
 		Short: "Show details of a single idea",
@@ -112,6 +112,7 @@ func newIdeaShowCmd(reader driving.IdeaReader) *cobra.Command {
 				fmt.Fprintf(out, "Description: %s\n", idea.Description)
 			}
 			fmt.Fprintf(out, "Created:     %s\n", idea.CreatedAt.Format("2006-01-02 15:04:05"))
+			renderLinksAndRefs(cmd.Context(), out, idea.ID, linkReader, refReader)
 			return nil
 		},
 	}

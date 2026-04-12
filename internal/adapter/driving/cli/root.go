@@ -32,6 +32,12 @@ func NewRootCmd(
 	scenarioCreator driving.ScenarioCreator,
 	scenarioReader driving.ScenarioReader,
 	scenarioSetter driving.ScenarioSetter,
+	linkAdder driving.LinkAdder,
+	linkRemover driving.LinkRemover,
+	linkReader driving.LinkReader,
+	refAdder driving.RefAdder,
+	refRemover driving.RefRemover,
+	refReader driving.RefReader,
 	editor driven.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
@@ -44,11 +50,13 @@ func NewRootCmd(
 
 	root.AddCommand(newInitCmd(initializer))
 	root.AddCommand(newWorkspaceCmd(statusReader, descReader, descWriter, editor))
-	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter, editor))
-	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader, editor))
-	root.AddCommand(newFeatureCmd(featureCreator, featureReader, featureSetter, epicReader, editor))
-	root.AddCommand(newStoryCmd(storyCreator, storyReader, storySetter, featureReader, editor))
-	root.AddCommand(newSpecCmd(specCreator, specReader, specSetter, storyReader, editor))
-	root.AddCommand(newScenarioCmd(scenarioCreator, scenarioReader, scenarioSetter, specReader, editor))
+	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter, linkReader, refReader, editor))
+	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader, linkReader, refReader, editor))
+	root.AddCommand(newFeatureCmd(featureCreator, featureReader, featureSetter, epicReader, linkReader, refReader, editor))
+	root.AddCommand(newStoryCmd(storyCreator, storyReader, storySetter, featureReader, linkReader, refReader, editor))
+	root.AddCommand(newSpecCmd(specCreator, specReader, specSetter, storyReader, linkReader, refReader, editor))
+	root.AddCommand(newScenarioCmd(scenarioCreator, scenarioReader, scenarioSetter, specReader, linkReader, refReader, editor))
+	root.AddCommand(newLinkCmd(linkAdder, linkRemover, linkReader))
+	root.AddCommand(newRefCmd(refAdder, refRemover, refReader))
 	return root
 }

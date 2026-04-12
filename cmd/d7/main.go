@@ -25,6 +25,9 @@ func main() {
 	storyRepo := cloveradapter.NewStoryRepository()
 	specRepo := cloveradapter.NewSpecRepository()
 	scenarioRepo := cloveradapter.NewScenarioRepository()
+	linkRepo := cloveradapter.NewLinkRepository()
+	refRepo := cloveradapter.NewRefRepository()
+	entityResolver := cloveradapter.NewEntityResolver()
 	historyRepo := cloveradapter.NewHistoryRepository()
 
 	editor := editorexec.New()
@@ -36,8 +39,9 @@ func main() {
 	storySvc := service.NewStoryService(fs, storyRepo, featureRepo, historyRepo)
 	specSvc := service.NewSpecService(fs, specRepo, storyRepo, historyRepo)
 	scenarioSvc := service.NewScenarioService(fs, scenarioRepo, specRepo, historyRepo)
+	linkSvc := service.NewLinkService(fs, linkRepo, refRepo, entityResolver, historyRepo)
 
-	root := cli.NewRootCmd(wsSvc, wsSvc, wsSvc, wsSvc, ideaSvc, ideaSvc, ideaSvc, epicSvc, epicSvc, epicSvc, featureSvc, featureSvc, featureSvc, storySvc, storySvc, storySvc, specSvc, specSvc, specSvc, scenarioSvc, scenarioSvc, scenarioSvc, editor)
+	root := cli.NewRootCmd(wsSvc, wsSvc, wsSvc, wsSvc, ideaSvc, ideaSvc, ideaSvc, epicSvc, epicSvc, epicSvc, featureSvc, featureSvc, featureSvc, storySvc, storySvc, storySvc, specSvc, specSvc, specSvc, scenarioSvc, scenarioSvc, scenarioSvc, linkSvc, linkSvc, linkSvc, linkSvc, linkSvc, linkSvc, editor)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
