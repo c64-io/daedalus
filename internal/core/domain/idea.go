@@ -11,7 +11,6 @@ type Idea struct {
 	Title       string    // short, required, editable
 	Description string    // longer prose, optional, editable
 	Status      Status    // lifecycle state; starts as StatusDraft
-	Blocked     bool      // independent of status
 	CreatedAt   time.Time // set once at creation, never mutated
 }
 

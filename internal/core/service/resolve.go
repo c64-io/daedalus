@@ -6,7 +6,7 @@ import (
 	"io/fs"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // resolveWorkspace resolves rootDir (or cwd when rootDir is empty)
@@ -14,7 +14,7 @@ import (
 // workspace actually exists on disk — callers must do that
 // themselves based on their use case (Init checks it does NOT exist;
 // Status/Idea commands check it DOES).
-func resolveWorkspace(filesystem port.FileSystem, rootDir string) (*domain.Workspace, error) {
+func resolveWorkspace(filesystem driven.FileSystem, rootDir string) (*domain.Workspace, error) {
 	if rootDir == "" || rootDir == "." {
 		cwd, err := filesystem.Getwd()
 		if err != nil {
@@ -34,7 +34,7 @@ func resolveWorkspace(filesystem port.FileSystem, rootDir string) (*domain.Works
 // requireWorkspace resolves rootDir into a Workspace and confirms
 // the workspace's database directory exists. Returns
 // ErrWorkspaceNotFound when it does not.
-func requireWorkspace(filesystem port.FileSystem, rootDir string) (*domain.Workspace, error) {
+func requireWorkspace(filesystem driven.FileSystem, rootDir string) (*domain.Workspace, error) {
 	ws, err := resolveWorkspace(filesystem, rootDir)
 	if err != nil {
 		return nil, err

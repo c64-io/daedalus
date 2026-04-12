@@ -1,4 +1,4 @@
-package port
+package driven
 
 import (
 	"context"
@@ -16,8 +16,7 @@ type IdeaRepository interface {
 	// sequence number for Idea IDs (1, 2, 3, ...).
 	NextIdeaSeq(ctx context.Context, dbDir string) (int, error)
 
-	// SaveIdea persists a fully constructed Idea. The caller is
-	// responsible for setting all fields including the ID.
+	// SaveIdea persists a fully constructed Idea.
 	SaveIdea(ctx context.Context, dbDir string, idea domain.Idea) error
 
 	// GetIdea returns the Idea with the given human-readable ID
@@ -27,6 +26,10 @@ type IdeaRepository interface {
 
 	// ListIdeas returns all Ideas in creation order.
 	ListIdeas(ctx context.Context, dbDir string) ([]domain.Idea, error)
+
+	// UpdateIdea replaces the stored Idea identified by idea.ID with
+	// the provided values. Returns ErrIdeaNotFound if it does not exist.
+	UpdateIdea(ctx context.Context, dbDir string, idea domain.Idea) error
 }
 
 // ErrIdeaNotFound is returned by IdeaRepository.GetIdea when the

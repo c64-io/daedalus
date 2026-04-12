@@ -53,13 +53,16 @@ Rules:
   `SCEN-114`. Per-type monotonic counters stored in Clover. IDs are stable;
   titles are editable.
 - **Full-agile lifecycle.** Every item carries a status:
-  `draft → refined → ready → in-progress → review → done → archived`,
-  plus an independent `blocked` flag. Transitions are validated by the core.
-- **Priority and size on every work item.** Priority is an enum:
-  `low | medium | high | critical`. Size is a Fibonacci point value
-  (`1, 2, 3, 5, 8, 13, 21`) — chosen over t-shirts because it composes
-  cleanly into rollups at the Feature and Epic level. Both default to
-  unset; both can be edited at any status.
+  `draft → refined → ready → in-progress → review → done → archived → blocked`.
+  `blocked` is a full status (not a separate flag) — any active status
+  can transition to `blocked`, and `blocked` can return to any active
+  status. Transitions are validated by the core's state machine.
+- **Priority and size on work items (Epic and below).** Priority is an
+  enum: `low | medium | high | critical`. Size is a Fibonacci point
+  value (`1, 2, 3, 5, 8, 13, 21`) — chosen over t-shirts because it
+  composes cleanly into rollups at the Feature and Epic level. Both
+  default to unset; both can be edited at any status. Ideas do not
+  carry priority or size — they are too vague for estimation.
 - **History and hierarchy are preserved.** The Clover store is append-friendly:
   every status transition, every spec body edit, every parent/child change is
   recorded with a timestamp so "why does this exist and how did it get here?"
@@ -272,27 +275,47 @@ internal/core/
   domain/                                     # Idea, Epic, Feature, Story, Spec, Scenario,
                                               #   Status, Priority, Size, Link, HistoryEntry
   port/
-    workspace_initializer.go                  # driving
-    workspace_repository.go                   # driven: storage
-    filesystem.go                             # driven: disk side-effects
-    (future) idea_service.go ... code_generator.go  # driving
-    (future) verifier.go                      # driving: d7 verify use case
-    (future) ai_assistant.go                  # driven: multi-turn agent over LLM
-    (future) scenario_runner.go               # driven: run Gherkin, return structured results
-    (future) git_worktree.go                  # driven: worktree create/commit/discard
-    (future) editor.go                        # driven: $EDITOR
-    (future) clock.go                         # driven: time (audit trail)
+    driving/                                  # inbound ports (CLI → service)
+      workspace.go                            # InitRequest, WorkspaceInitializer,
+                                              #   WorkspaceStatusReader, WorkspaceDescription{Reader,Writer}
+      idea.go                                 # CreateIdeaRequest, IdeaCreator, IdeaReader, IdeaSetter
+      epic.go                                 # CreateEpicRequest, EpicCreator, EpicReader, EpicSetter
+      feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader, FeatureSetter
+      story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
+      spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader, SpecSetter
+      scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
+      link.go                                 # AddLinkRequest, LinkAdder, LinkRemover, LinkReader,
+                                              #   AddRefRequest, RefAdder, RefRemover, RefReader, ResolvedLink
+      (future) code_generator.go              # generation use case
+      (future) verifier.go                    # d7 verify use case
+    driven/                                   # outbound ports (service → adapter)
+      workspace.go                            # WorkspaceRepository, ErrMetadataNotFound
+      idea.go                                 # IdeaRepository, ErrIdeaNotFound
+      epic.go                                 # EpicRepository, ErrEpicNotFound
+      feature.go                              # FeatureRepository, ErrFeatureNotFound
+      story.go                                # StoryRepository, ErrStoryNotFound
+      spec.go                                 # SpecRepository, ErrSpecNotFound
+      scenario.go                             # ScenarioRepository, ErrScenarioNotFound
+      link.go                                 # LinkRepository, RefRepository, EntityResolver,
+                                              #   ErrLinkNotFound, ErrRefNotFound, ErrEntityNotFound
+      history.go                              # HistoryRepository
+      filesystem.go                           # FileSystem
+      editor.go                               # Editor ($EDITOR)
+      (future) ai_assistant.go                # multi-turn agent over LLM
+      (future) scenario_runner.go             # run Gherkin, return structured results
+      (future) git_worktree.go                # worktree create/commit/discard
+      (future) clock.go                       # time (audit trail)
   service/                                    # pure use-case implementations
 internal/adapter/
   driving/cli/                                # cobra commands
   driven/
     clover/                                   # Clover v2 implementation of storage ports
     osfs/                                     # os-backed FileSystem
+    editorexec/                               # $EDITOR launcher
     (future) anthropic/                       # Anthropic SDK impl of ai_assistant (agentic loop)
     (future) godog/                           # ScenarioRunner for Go targets
     (future) cucumberjs/                      # ScenarioRunner for TypeScript targets
     (future) gitworktree/                     # git worktree adapter for generation
-    (future) editorexec/                      # $EDITOR launcher
 ```
 
 ### Non-negotiable rules for contributors (and Claude)
@@ -327,20 +350,143 @@ internal/adapter/
 
 ## Current state (as of this commit)
 
-Only the foundation is in place:
+Implemented:
 
-- `d7 init [path]` creates `d7/.db/` and provisions an empty Clover store.
-  Errors if `d7/` already exists.
-- Ports: `WorkspaceInitializer`, `WorkspaceRepository`, `FileSystem`.
-- Adapters: `clover` (storage), `osfs` (filesystem), `cli` (cobra).
+- `d7 init [path] --lang <go|typescript>` creates `d7/.db/`,
+  provisions an empty Clover store with immutable target metadata and
+  a default project description in the database. Errors if `d7/`
+  already exists. No files are created outside `d7/.db/`.
+- `d7 workspace status` shows workspace dir, target, and project
+  description state.
+- `d7 workspace show` prints the project description from the database;
+  hints on stderr if it is still the default template.
+- `d7 workspace edit` opens `$EDITOR` with a YAML front-matter header
+  (target, read-only) followed by the project description body. On save,
+  the description is updated in the database.
+- `d7 idea new --title "..." [--description "..."] [--expand]` creates
+  an Idea in `draft` status with a stable IDEA-XXX ID.
+- `d7 idea list` / `d7 idea show <id>` for reading Ideas.
+- `d7 idea set <id> --status <status> [--title] [--description]`
+  updates fields with state-machine validation and history tracking.
+- `d7 idea edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  status, title, created) plus the description body. Changed fields
+  are applied via `SetIdea`.
+- `d7 epic new --idea IDEA-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates an Epic under a parent Idea. The parent must be at least
+  `refined`; draft and archived Ideas are rejected.
+- `d7 epic list [--idea IDEA-XXX]` lists all epics or filters by parent.
+- `d7 epic show <id>` shows epic details including parent Idea info.
+- `d7 epic set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- `d7 epic edit <id>` opens `$EDITOR` with YAML front-matter (id, idea,
+  status, title, priority, size, created) plus the description body.
+  Changed fields are applied via `SetEpic`.
+- `d7 feature new --epic EPIC-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates a Feature under a parent Epic. The parent must be at least
+  `refined`; draft and archived Epics are rejected.
+- `d7 feature list [--epic EPIC-XXX]` lists all features or filters
+  by parent.
+- `d7 feature show <id>` shows feature details including parent Epic info.
+- `d7 feature set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- `d7 feature edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  epic, status, title, priority, size, created) plus the description
+  body. Changed fields are applied via `SetFeature`.
+- Editor-based editing uses a shared edit loop: if YAML parsing or
+  validation fails, the editor re-opens with the error prepended as
+  a comment.
+- `d7 story new --feature FEAT-XXX --title "..." [--description] [--priority] [--size] [--expand]`
+  creates a Story under a parent Feature. The parent must be at least
+  `refined`; draft and archived Features are rejected.
+- `d7 story list [--feature FEAT-XXX]` lists all stories or filters
+  by parent.
+- `d7 story show <id>` shows story details including parent Feature info.
+- `d7 story set <id> --status <status> [--title] [--description] [--priority] [--size]`
+  updates fields with state-machine validation and history tracking.
+- `d7 story edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  feature, status, title, priority, size, created) plus the description
+  body. Changed fields are applied via `SetStory`.
+- `d7 spec new --story STORY-XXX --title "..." [--description] [--expand]`
+  creates a Spec under a parent Story. The parent must be at least
+  `refined`; draft and archived Stories are rejected. Specs do not
+  carry priority or size — they are prose, not work items.
+- `d7 spec list [--story STORY-XXX]` lists all specs or filters
+  by parent.
+- `d7 spec show <id>` shows spec details including parent Story info.
+- `d7 spec set <id> --status <status> [--title] [--description]`
+  updates fields with state-machine validation and history tracking.
+- `d7 spec edit <id>` opens `$EDITOR` with YAML front-matter (id,
+  story, status, title, created) plus the description body. Changed
+  fields are applied via `SetSpec`.
+- `d7 scenario new --spec SPEC-XXX --title "..." [--given] [--when] [--then] [--tag]`
+  creates a Scenario under a parent Spec. The parent must be at least
+  `refined`. Repeatable `--given`/`--when`/`--then` flags seed plain-text
+  steps; richer authoring (data tables, doc strings) uses the editor flow.
+  Repeatable `--tag` seeds user tags (stored without the leading `@`).
+- `d7 scenario list [--spec SPEC-XXX]` lists all scenarios or filters
+  by parent. The `STEPS` column summarizes shape as `NG/NW/NT`.
+- `d7 scenario show <id>` shows metadata and the rendered Gherkin
+  block (user tags, Scenario header, Given/When/Then with `And`
+  continuations, data tables, and doc strings). The mandatory
+  `@d7:<ID>` tag is added at export time, not stored or shown here.
+- `d7 scenario set <id> --status <status> [--title] [--tag]` updates
+  scalar fields with state-machine validation and history tracking.
+  Step editing goes through the editor flow.
+- `d7 scenario edit <id>` opens `$EDITOR` with a structured YAML
+  document (read-only id/spec/created as comments, editable
+  status/title/tags/given/when/then). Steps may carry optional
+  `data_table` or `doc_string` payloads. Changed fields are diffed
+  structurally and applied via `SetScenario`.
+- `d7 link add <from> <kind> <to>` creates a typed link between two
+  entities. Valid kinds: `blocked-by`, `relates-to`, `duplicates`.
+  Cross-type links are allowed (e.g. STORY blocked-by EPIC). Self-links
+  are rejected. Duplicate links are idempotent. For `blocked-by`, cycle
+  detection prevents circular dependency chains. Symmetric kinds
+  (`relates-to`, `duplicates`) are stored once and displayed both ways.
+- `d7 link rm <from> <kind> <to>` removes a link. For symmetric kinds,
+  also checks the reverse direction.
+- `d7 link list [<entity-id>]` lists all links or those touching a
+  specific entity, with resolved titles.
+- `d7 ref add <entity-id> <url> [--label <s>]` attaches an external
+  reference (URL) to any entity. Optional label for display.
+  Duplicates are idempotent.
+- `d7 ref rm <entity-id> <url>` removes an external reference.
+- `d7 ref list [<entity-id>]` lists all refs or those for a specific
+  entity.
+- All `show` commands for all 6 entity types render links and refs
+  inline when present (grouped as Blocked by / Blocks / Relates to /
+  Duplicates / Refs sections). Hidden when empty.
+- Domain types: `Idea`, `Epic`, `Feature`, `Story`, `Spec`, `Scenario`,
+  `Step`, `DataTable`, `Link`, `LinkKind`, `Ref`, `Status` (with
+  transition state machine including `blocked`), `Target`, `Priority`,
+  `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
+  Domain also exposes `FormatScenarioAsGherkin` (pure),
+  `FormatScenarioYAML` / `ParseScenarioYAML` (round-trip via
+  `gopkg.in/yaml.v3`), and `ParseEntityPrefix` / `ParseLinkKind`.
+- Ports are split into `port/driving` (inbound, CLI → service) and
+  `port/driven` (outbound, service → adapter). Driving:
+  `WorkspaceInitializer`, `WorkspaceStatusReader`,
+  `WorkspaceDescriptionReader`, `WorkspaceDescriptionWriter`,
+  `IdeaCreator`, `IdeaReader`, `IdeaSetter`,
+  `EpicCreator`, `EpicReader`, `EpicSetter`,
+  `FeatureCreator`, `FeatureReader`, `FeatureSetter`,
+  `StoryCreator`, `StoryReader`, `StorySetter`,
+  `SpecCreator`, `SpecReader`, `SpecSetter`,
+  `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`,
+  `LinkAdder`, `LinkRemover`, `LinkReader`,
+  `RefAdder`, `RefRemover`, `RefReader`.
+  Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
+  `FeatureRepository`, `StoryRepository`, `SpecRepository`,
+  `ScenarioRepository`, `LinkRepository`, `RefRepository`,
+  `EntityResolver`, `HistoryRepository`, `FileSystem`, `Editor`.
+- Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
+  (`$EDITOR` launcher), `cli` (cobra).
 
-Everything else in this document — ideas, epics, features, stories, the
-sparse graph, history, Gherkin export with mandatory `@d7:SCEN-XXX`
-tagging, AI assist, the agentic generator, worktree isolation,
-regeneration, the ScenarioRunner port with godog and cucumber-js
-adapters, and the verify loop that terminates generation — is planned
-surface area and should be built incrementally, each behind its own
-port, each with the same discipline.
+Not yet implemented: Gherkin export (including the mandatory
+`@d7:<ID>` tag prepended at export time), AI assist, the agentic
+generator, worktree isolation, regeneration, the ScenarioRunner port,
+and the verify loop. All are planned surface area and should be built
+incrementally, each behind its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -348,15 +494,62 @@ port, each with the same discipline.
 go mod tidy
 go build ./...
 go vet ./...
+go test ./...
 ```
 
 Manual smoke test:
 
 ```sh
-mkdir /tmp/d7-test && cd /tmp/d7-test
-go run github.com/c64-io/daedalus/cmd/d7 init
-ls -la d7/.db                # expect data.db
-go run github.com/c64-io/daedalus/cmd/d7 init   # expect error (already initialized)
+go build -o /tmp/d7 ./cmd/d7
+rm -rf /tmp/d7-test && mkdir /tmp/d7-test && cd /tmp/d7-test
+/tmp/d7 init --lang go
+/tmp/d7 workspace status
+/tmp/d7 workspace show
+EDITOR=cat /tmp/d7 workspace edit
+/tmp/d7 idea new --title "My SaaS"
+/tmp/d7 idea list
+/tmp/d7 idea show IDEA-001
+/tmp/d7 idea set IDEA-001 --status refined
+EDITOR=cat /tmp/d7 idea edit IDEA-001
+/tmp/d7 epic new --idea IDEA-001 --title "Billing"
+/tmp/d7 epic set EPIC-001 --status refined
+EDITOR=cat /tmp/d7 epic edit EPIC-001
+/tmp/d7 feature new --epic EPIC-001 --title "Payment Processing"
+/tmp/d7 feature list --epic EPIC-001
+/tmp/d7 feature show FEAT-001
+EDITOR=cat /tmp/d7 feature edit FEAT-001
+/tmp/d7 feature set FEAT-001 --status refined
+/tmp/d7 story new --feature FEAT-001 --title "User can log in"
+/tmp/d7 story list --feature FEAT-001
+/tmp/d7 story show STORY-001
+/tmp/d7 story set STORY-001 --status refined
+EDITOR=cat /tmp/d7 story edit STORY-001
+/tmp/d7 spec new --story STORY-001 --title "Login rules" --description "OAuth only; password login is out of scope."
+/tmp/d7 spec list --story STORY-001
+/tmp/d7 spec show SPEC-001
+/tmp/d7 spec set SPEC-001 --status refined
+EDITOR=cat /tmp/d7 spec edit SPEC-001
+/tmp/d7 scenario new --spec SPEC-001 --title "User logs in with valid OAuth token" \
+    --given "a user has a valid OAuth token" \
+    --when  "the user signs in" \
+    --then  "the user is redirected to the dashboard" \
+    --tag happy-path
+/tmp/d7 scenario list --spec SPEC-001
+/tmp/d7 scenario show SCEN-001
+/tmp/d7 scenario set SCEN-001 --status refined
+EDITOR=cat /tmp/d7 scenario edit SCEN-001
+# Cross-links and external refs
+/tmp/d7 story new --feature FEAT-001 --title "User can reset password"
+/tmp/d7 link add STORY-001 blocked-by STORY-002
+/tmp/d7 link add STORY-001 relates-to EPIC-001
+/tmp/d7 link list STORY-001
+/tmp/d7 story show STORY-001                # should show Blocked by + Relates to sections
+/tmp/d7 ref add STORY-001 https://figma.com/login --label "Login mockup"
+/tmp/d7 ref add STORY-001 https://github.com/c64-io/foo/issues/42
+/tmp/d7 ref list STORY-001
+/tmp/d7 story show STORY-001                # now shows Refs section too
+/tmp/d7 link rm STORY-001 blocked-by STORY-002
+/tmp/d7 ref rm STORY-001 https://figma.com/login
 ```
 
 ## Working in this repo (for Claude Code sessions)

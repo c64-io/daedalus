@@ -5,6 +5,7 @@ go 1.24.7
 require (
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	github.com/spf13/cobra v1.10.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

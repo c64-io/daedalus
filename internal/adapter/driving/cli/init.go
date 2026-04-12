@@ -6,10 +6,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newInitCmd(initializer port.WorkspaceInitializer) *cobra.Command {
+func newInitCmd(initializer driving.WorkspaceInitializer) *cobra.Command {
 	var lang string
 
 	cmd := &cobra.Command{
@@ -31,7 +31,7 @@ func newInitCmd(initializer port.WorkspaceInitializer) *cobra.Command {
 				return err
 			}
 
-			ws, err := initializer.Init(cmd.Context(), port.InitRequest{
+			ws, err := initializer.Init(cmd.Context(), driving.InitRequest{
 				RootDir: root,
 				Target:  target,
 			})

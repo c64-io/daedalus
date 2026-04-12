@@ -9,21 +9,23 @@ import (
 	q "github.com/ostafen/clover/v2/query"
 
 	"github.com/c64-io/daedalus/internal/core/domain"
-	"github.com/c64-io/daedalus/internal/core/port"
+	"github.com/c64-io/daedalus/internal/core/port/driven"
 )
 
 // Collection and field names for the workspace metadata document.
 // These are the Clover adapter's concern, not the core's.
 const (
-	workspaceCollection = "workspace"
-	fieldTarget         = "target"
+	workspaceCollection    = "workspace"
+	descriptionCollection  = "workspace_description"
+	fieldTarget            = "target"
+	fieldContent           = "content"
 )
 
 // Compile-time assertion that WorkspaceRepository satisfies the driven port.
-var _ port.WorkspaceRepository = (*WorkspaceRepository)(nil)
+var _ driven.WorkspaceRepository = (*WorkspaceRepository)(nil)
 
 // WorkspaceRepository is the Clover v2 implementation of
-// port.WorkspaceRepository. It provisions the directory-backed store
+// driven.WorkspaceRepository. It provisions the directory-backed store
 // used by a d7 workspace and writes the initial workspace metadata
 // document.
 type WorkspaceRepository struct{}
@@ -84,7 +86,7 @@ func (r *WorkspaceRepository) ReadMetadata(_ context.Context, dbDir string) (_ d
 		return domain.WorkspaceMetadata{}, fmt.Errorf("check %q collection: %w", workspaceCollection, err)
 	}
 	if !has {
-		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q missing", port.ErrMetadataNotFound, workspaceCollection)
+		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q missing", driven.ErrMetadataNotFound, workspaceCollection)
 	}
 
 	doc, err := db.FindFirst(q.NewQuery(workspaceCollection))
@@ -92,7 +94,7 @@ func (r *WorkspaceRepository) ReadMetadata(_ context.Context, dbDir string) (_ d
 		return domain.WorkspaceMetadata{}, fmt.Errorf("find workspace metadata: %w", err)
 	}
 	if doc == nil {
-		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q empty", port.ErrMetadataNotFound, workspaceCollection)
+		return domain.WorkspaceMetadata{}, fmt.Errorf("%w: collection %q empty", driven.ErrMetadataNotFound, workspaceCollection)
 	}
 
 	raw, _ := doc.Get(fieldTarget).(string)
@@ -102,4 +104,65 @@ func (r *WorkspaceRepository) ReadMetadata(_ context.Context, dbDir string) (_ d
 	}
 
 	return domain.WorkspaceMetadata{Target: target}, nil
+}
+
+// SaveProjectDescription writes the project description content into
+// the workspace_description collection, replacing any existing doc.
+func (r *WorkspaceRepository) SaveProjectDescription(_ context.Context, dbDir string, content string) (retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	has, err := db.HasCollection(descriptionCollection)
+	if err != nil {
+		return fmt.Errorf("check %q collection: %w", descriptionCollection, err)
+	}
+	if !has {
+		if err := db.CreateCollection(descriptionCollection); err != nil {
+			return fmt.Errorf("create %q collection: %w", descriptionCollection, err)
+		}
+	}
+
+	// Delete any existing doc and insert the new one.
+	_ = db.Delete(q.NewQuery(descriptionCollection))
+
+	doc := d.NewDocument()
+	doc.Set(fieldContent, content)
+	if _, err := db.InsertOne(descriptionCollection, doc); err != nil {
+		return fmt.Errorf("insert project description: %w", err)
+	}
+
+	return nil
+}
+
+// ReadProjectDescription reads the project description from the
+// workspace_description collection. Returns ErrProjectDescriptionNotFound
+// when no description has been stored yet.
+func (r *WorkspaceRepository) ReadProjectDescription(_ context.Context, dbDir string) (_ string, retErr error) {
+	db, err := c.Open(dbDir)
+	if err != nil {
+		return "", fmt.Errorf("open clover db: %w", err)
+	}
+	defer closeDB(db, &retErr)
+
+	has, err := db.HasCollection(descriptionCollection)
+	if err != nil {
+		return "", fmt.Errorf("check %q collection: %w", descriptionCollection, err)
+	}
+	if !has {
+		return "", fmt.Errorf("%w", driven.ErrProjectDescriptionNotFound)
+	}
+
+	doc, err := db.FindFirst(q.NewQuery(descriptionCollection))
+	if err != nil {
+		return "", fmt.Errorf("find project description: %w", err)
+	}
+	if doc == nil {
+		return "", fmt.Errorf("%w", driven.ErrProjectDescriptionNotFound)
+	}
+
+	content, _ := doc.Get(fieldContent).(string)
+	return content, nil
 }
