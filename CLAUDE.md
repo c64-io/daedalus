@@ -286,6 +286,7 @@ internal/core/
       scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
       link.go                                 # AddLinkRequest, LinkAdder, LinkRemover, LinkReader,
                                               #   AddRefRequest, RefAdder, RefRemover, RefReader, ResolvedLink
+      ai.go                                   # ExpandStoryRequest, StoryExpander
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -301,18 +302,30 @@ internal/core/
       history.go                              # HistoryRepository
       filesystem.go                           # FileSystem
       editor.go                               # Editor ($EDITOR)
-      (future) ai_assistant.go                # multi-turn agent over LLM
+      ai.go                                   # AIAssistant, ChatRequest/Response, Tool, Usage,
+                                              #   ErrAIAuthFailed/RateLimited/Overloaded/…,
+                                              #   RateLimitedError (Retry-After hint)
+      interaction.go                          # Interaction (Ask, Review), Answer, Decision,
+                                              #   Proposal, Question
+      status.go                               # StatusRenderer, Status, Phase
+      clock.go                                # Clock (Now, Sleep) — for testable backoff
       (future) scenario_runner.go             # run Gherkin, return structured results
       (future) git_worktree.go                # worktree create/commit/discard
-      (future) clock.go                       # time (audit trail)
   service/                                    # pure use-case implementations
+                                              #   — includes StoryExpandService + the
+                                              #   non-recursive AI dialog runner (ai_loop.go)
 internal/adapter/
   driving/cli/                                # cobra commands
   driven/
     clover/                                   # Clover v2 implementation of storage ports
     osfs/                                     # os-backed FileSystem
     editorexec/                               # $EDITOR launcher
-    (future) anthropic/                       # Anthropic SDK impl of ai_assistant (agentic loop)
+    anthropic/                                # Anthropic SDK impl of AIAssistant
+                                              #   (tool_use + prompt caching via
+                                              #   cache_control: ephemeral)
+    cliinteraction/                           # stdin/stdout + $EDITOR impl of Interaction
+    ttystatus/                                # TTY-aware one-line StatusRenderer
+    clockexec/                                # time.Now / time.Sleep impl of Clock
     (future) godog/                           # ScenarioRunner for Go targets
     (future) cucumberjs/                      # ScenarioRunner for TypeScript targets
     (future) gitworktree/                     # git worktree adapter for generation
@@ -474,18 +487,40 @@ Implemented:
   `SpecCreator`, `SpecReader`, `SpecSetter`,
   `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`,
   `LinkAdder`, `LinkRemover`, `LinkReader`,
-  `RefAdder`, `RefRemover`, `RefReader`.
+  `RefAdder`, `RefRemover`, `RefReader`,
+  `StoryExpander`.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
   `ScenarioRepository`, `LinkRepository`, `RefRepository`,
-  `EntityResolver`, `HistoryRepository`, `FileSystem`, `Editor`.
+  `EntityResolver`, `HistoryRepository`, `FileSystem`, `Editor`,
+  `AIAssistant`, `Interaction`, `StatusRenderer`, `Clock`.
 - Adapters: `clover` (storage), `osfs` (filesystem), `editorexec`
-  (`$EDITOR` launcher), `cli` (cobra).
+  (`$EDITOR` launcher), `cli` (cobra), `anthropic` (Anthropic SDK,
+  prompt caching on System + Context), `cliinteraction` (stdin/stdout
+  + `$EDITOR` Interaction), `ttystatus` (one-line TTY-aware status
+  renderer), `clockexec` (time.Now/Sleep).
+- `d7 expand story <story-id> [--model <id>]` runs an interactive
+  interview-first AI dialog and, on acceptance, replaces the
+  Story's Description with the approved text. The dialog loop is
+  a non-recursive state machine (see
+  `internal/core/service/ai_loop.go`) driven through the
+  `AIAssistant`, `Interaction`, `StatusRenderer`, and `Clock`
+  ports. Defaults: `claude-haiku-4-5-20251001` model, 10-question
+  interview budget, 2 malformed-response retries, 3 rate-limit
+  backoff retries with exponential doubling and Retry-After
+  honoring. During Review the founder picks `[a]ccept` /
+  `[c]ritique` / `[e]dit` / `[q]uit`; critique rewinds the
+  conversation into a new LLM turn, edit opens `$EDITOR` on the
+  proposal JSON and re-validates before applying. Abort is a
+  clean exit with no DB writes. Requires `ANTHROPIC_API_KEY`
+  in the environment — but only for AI commands; data-only
+  commands still run with the variable unset.
 
-Not yet implemented: Gherkin export (including the mandatory
-`@d7:<ID>` tag prepended at export time), AI assist, the agentic
-generator, worktree isolation, regeneration, the ScenarioRunner port,
-and the verify loop. All are planned surface area and should be built
+Not yet implemented: additional AI commands (`d7 suggest`, `d7 refine`,
+multi-item pickers), Gherkin export (including the mandatory
+`@d7:<ID>` tag prepended at export time), the agentic generator,
+worktree isolation, regeneration, the ScenarioRunner port, and the
+verify loop. All are planned surface area and should be built
 incrementally, each behind its own port, each with the same discipline.
 
 ## Build & verify
@@ -550,6 +585,17 @@ EDITOR=cat /tmp/d7 scenario edit SCEN-001
 /tmp/d7 story show STORY-001                # now shows Refs section too
 /tmp/d7 link rm STORY-001 blocked-by STORY-002
 /tmp/d7 ref rm STORY-001 https://figma.com/login
+
+# AI-assisted expansion — requires ANTHROPIC_API_KEY in the env.
+# Drops you into an interactive interview, then a proposal review.
+# Type `/done` at any question to have the model propose now;
+# type `/quit` to cancel with no DB writes. At review time:
+#   a = accept   c = critique (then end with `.` on its own line)
+#   e = edit the proposal JSON in $EDITOR   q = quit
+/tmp/d7 story new --feature FEAT-001 --title "User exports orders to CSV"
+export ANTHROPIC_API_KEY=sk-ant-...
+/tmp/d7 expand story STORY-003
+/tmp/d7 story show STORY-003   # Description now populated + history entry
 ```
 
 ## Working in this repo (for Claude Code sessions)

@@ -3,13 +3,13 @@ module github.com/c64-io/daedalus
 go 1.24.7
 
 require (
+	github.com/anthropics/anthropic-sdk-go v1.35.0
 	github.com/ostafen/clover/v2 v2.0.0-alpha.3
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.35.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
