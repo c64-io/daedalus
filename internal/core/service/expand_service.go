@@ -12,6 +12,10 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
+// Shared helpers (attachCommonContext, resolveDialogLink, the
+// ToContextEntity converters, sizeString) live in ai_context.go so
+// SuggestService can reuse them.
+
 // Sentinel errors shared by every expand-* command.
 var (
 	ErrExpandIDRequired          = errors.New("entity ID is required")
@@ -44,15 +48,13 @@ var (
 // runs the interview-first AI dialog via runDialog, and on acceptance
 // updates the entity's Description field.
 type ExpandService struct {
+	contextSource // embedded: attachCommonContext, resolveDialogLink
+
 	fs        driven.FileSystem
-	wsRepo    driven.WorkspaceRepository
 	ideaRepo  driven.IdeaRepository
 	epicRepo  driven.EpicRepository
 	featRepo  driven.FeatureRepository
 	storyRepo driven.StoryRepository
-	linkRepo  driven.LinkRepository
-	refRepo   driven.RefRepository
-	resolver  driven.EntityResolver
 	history   driven.HistoryRepository
 
 	llm    driven.AIAssistant
@@ -81,15 +83,17 @@ func NewExpandService(
 	clock driven.Clock,
 ) *ExpandService {
 	return &ExpandService{
+		contextSource: contextSource{
+			wsRepo:   wsRepo,
+			linkRepo: linkRepo,
+			refRepo:  refRepo,
+			resolver: resolver,
+		},
 		fs:        fs,
-		wsRepo:    wsRepo,
 		ideaRepo:  ideaRepo,
 		epicRepo:  epicRepo,
 		featRepo:  featRepo,
 		storyRepo: storyRepo,
-		linkRepo:  linkRepo,
-		refRepo:   refRepo,
-		resolver:  resolver,
 		history:   history,
 		llm:       llm,
 		inter:     inter,
@@ -375,65 +379,6 @@ func (s *ExpandService) buildStoryContext(ctx context.Context, dbDir string, sto
 	return dc, nil
 }
 
-// attachCommonContext populates the workspace description, links, and
-// refs — the slice of context every entity shares regardless of depth.
-func (s *ExpandService) attachCommonContext(ctx context.Context, dbDir string, selfID string, dc *domain.DialogContext) error {
-	if desc, err := s.wsRepo.ReadProjectDescription(ctx, dbDir); err == nil {
-		dc.Workspace = desc
-	} else if !errors.Is(err, driven.ErrProjectDescriptionNotFound) {
-		return fmt.Errorf("read project description: %w", err)
-	}
-
-	links, err := s.linkRepo.ListLinksByEntity(ctx, dbDir, selfID)
-	if err != nil {
-		return fmt.Errorf("list links: %w", err)
-	}
-	for _, l := range links {
-		dcl, err := s.resolveDialogLink(ctx, dbDir, selfID, l)
-		if err != nil {
-			return err
-		}
-		dc.Links = append(dc.Links, dcl)
-	}
-
-	refs, err := s.refRepo.ListRefsByEntity(ctx, dbDir, selfID)
-	if err != nil {
-		return fmt.Errorf("list refs: %w", err)
-	}
-	for _, r := range refs {
-		dc.Refs = append(dc.Refs, domain.DialogContextRef{URL: r.URL, Label: r.Label})
-	}
-	return nil
-}
-
-// resolveDialogLink turns a stored Link into a DialogContextLink with
-// the "other" endpoint resolved to its title and the relation label
-// direction-normalized relative to selfID.
-func (s *ExpandService) resolveDialogLink(ctx context.Context, dbDir string, selfID string, l domain.Link) (domain.DialogContextLink, error) {
-	var other string
-	var relation string
-	switch {
-	case l.FromID == selfID:
-		other = l.ToID
-		relation = string(l.Kind)
-	case l.ToID == selfID:
-		other = l.FromID
-		relation = l.Kind.InverseLabel()
-	default:
-		other = l.ToID
-		relation = string(l.Kind)
-	}
-	title, err := s.resolver.ResolveEntity(ctx, dbDir, other)
-	if err != nil && !errors.Is(err, driven.ErrEntityNotFound) {
-		return domain.DialogContextLink{}, fmt.Errorf("resolve link endpoint %s: %w", other, err)
-	}
-	return domain.DialogContextLink{
-		Relation:   relation,
-		OtherID:    other,
-		OtherTitle: title,
-	}, nil
-}
-
 // ---------------------------------------------------------------------
 // Per-entity apply — each persists the accepted description and
 // records a history entry. The duplication is minor and avoids
@@ -644,60 +589,3 @@ func quoteJSONString(s string) string {
 	return b.String()
 }
 
-// ---------------------------------------------------------------------
-// Typed → DialogContextEntity converters.
-// ---------------------------------------------------------------------
-
-func ideaToContextEntity(i domain.Idea) domain.DialogContextEntity {
-	return domain.DialogContextEntity{
-		Kind:        "Idea",
-		ID:          i.ID,
-		Title:       i.Title,
-		Status:      string(i.Status),
-		Description: i.Description,
-	}
-}
-
-func epicToContextEntity(e domain.Epic) domain.DialogContextEntity {
-	return domain.DialogContextEntity{
-		Kind:        "Epic",
-		ID:          e.ID,
-		Title:       e.Title,
-		Status:      string(e.Status),
-		Description: e.Description,
-		Priority:    string(e.Priority),
-		Size:        sizeString(e.Size),
-	}
-}
-
-func featureToContextEntity(f domain.Feature) domain.DialogContextEntity {
-	return domain.DialogContextEntity{
-		Kind:        "Feature",
-		ID:          f.ID,
-		Title:       f.Title,
-		Status:      string(f.Status),
-		Description: f.Description,
-		Priority:    string(f.Priority),
-		Size:        sizeString(f.Size),
-	}
-}
-
-func storyToContextEntity(s domain.Story) domain.DialogContextEntity {
-	return domain.DialogContextEntity{
-		Kind:        "Story",
-		ID:          s.ID,
-		Title:       s.Title,
-		Status:      string(s.Status),
-		Description: s.Description,
-		Priority:    string(s.Priority),
-		Size:        sizeString(s.Size),
-	}
-}
-
-// sizeString renders a Size as a Fibonacci string, or "" for unset.
-func sizeString(sz domain.Size) string {
-	if sz == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d", int(sz))
-}
