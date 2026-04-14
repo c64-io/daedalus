@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newIdeaCmd(creator driving.IdeaCreator, reader driving.IdeaReader, setter driving.IdeaSetter, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newIdeaCmd(idea driving.Idea, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "idea",
 		Short: "Manage ideas — the top of the d7 hierarchy",
 	}
 
-	cmd.AddCommand(newIdeaNewCmd(creator))
-	cmd.AddCommand(newIdeaListCmd(reader))
-	cmd.AddCommand(newIdeaShowCmd(reader, linkReader, refReader))
-	cmd.AddCommand(newIdeaSetCmd(setter))
-	cmd.AddCommand(newIdeaEditCmd(reader, setter, editor))
+	cmd.AddCommand(newIdeaNewCmd(idea))
+	cmd.AddCommand(newIdeaListCmd(idea))
+	cmd.AddCommand(newIdeaShowCmd(idea, link, ref))
+	cmd.AddCommand(newIdeaSetCmd(idea))
+	cmd.AddCommand(newIdeaEditCmd(idea, idea, editor))
 	return cmd
 }
 

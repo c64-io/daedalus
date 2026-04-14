@@ -7,10 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	anthropicadapter "github.com/c64-io/daedalus/internal/adapter/driven/anthropic"
+	"github.com/c64-io/daedalus/internal/adapter/driven/cliinteraction"
 	"github.com/c64-io/daedalus/internal/adapter/driven/clockexec"
 	cloveradapter "github.com/c64-io/daedalus/internal/adapter/driven/clover"
 	"github.com/c64-io/daedalus/internal/adapter/driven/editorexec"
 	"github.com/c64-io/daedalus/internal/adapter/driven/osfs"
+	"github.com/c64-io/daedalus/internal/adapter/driven/ttystatus"
 	"github.com/c64-io/daedalus/internal/adapter/driving/cli"
 	"github.com/c64-io/daedalus/internal/core/service"
 )
@@ -20,7 +23,6 @@ func main() {
 	fs := osfs.New()
 	wsRepo := cloveradapter.NewWorkspaceRepository()
 	ideaRepo := cloveradapter.NewIdeaRepository()
-
 	epicRepo := cloveradapter.NewEpicRepository()
 	featureRepo := cloveradapter.NewFeatureRepository()
 	storyRepo := cloveradapter.NewStoryRepository()
@@ -34,6 +36,14 @@ func main() {
 	editor := editorexec.New()
 	clock := clockexec.New()
 
+	// AI-adjacent driven adapters. The Anthropic client defers its
+	// ANTHROPIC_API_KEY check until the first Chat() call, so it's
+	// safe to build eagerly here — data-only commands never trip the
+	// missing-key path.
+	llm := anthropicadapter.New()
+	inter := cliinteraction.New(editor)
+	status := ttystatus.New()
+
 	wsSvc := service.NewWorkspaceService(fs, wsRepo)
 	ideaSvc := service.NewIdeaService(fs, ideaRepo, historyRepo)
 	epicSvc := service.NewEpicService(fs, epicRepo, ideaRepo, historyRepo)
@@ -42,17 +52,25 @@ func main() {
 	specSvc := service.NewSpecService(fs, specRepo, storyRepo, historyRepo)
 	scenarioSvc := service.NewScenarioService(fs, scenarioRepo, specRepo, historyRepo)
 	linkSvc := service.NewLinkService(fs, linkRepo, refRepo, entityResolver, historyRepo)
-
-	// AI-assist is wired through a lazy shim (see ai_bootstrap.go): the
-	// Anthropic client is only built on first ExpandX call, so
-	// data-only commands still run with ANTHROPIC_API_KEY unset.
-	expander := newDeferredExpander(
+	expandSvc := service.NewExpandService(
 		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo,
 		linkRepo, refRepo, entityResolver, historyRepo,
-		editor, clock,
+		llm, inter, status, clock,
 	)
 
-	root := cli.NewRootCmd(wsSvc, wsSvc, wsSvc, wsSvc, ideaSvc, ideaSvc, ideaSvc, epicSvc, epicSvc, epicSvc, featureSvc, featureSvc, featureSvc, storySvc, storySvc, storySvc, specSvc, specSvc, specSvc, scenarioSvc, scenarioSvc, scenarioSvc, linkSvc, linkSvc, linkSvc, linkSvc, linkSvc, linkSvc, expander, editor)
+	root := cli.NewRootCmd(
+		wsSvc,       // driving.Workspace
+		ideaSvc,     // driving.Idea
+		epicSvc,     // driving.Epic
+		featureSvc,  // driving.Feature
+		storySvc,    // driving.Story
+		specSvc,     // driving.Spec
+		scenarioSvc, // driving.Scenario
+		linkSvc,     // driving.Link
+		linkSvc,     // driving.Ref (same concrete svc)
+		expandSvc,   // driving.Expander
+		editor,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

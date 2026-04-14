@@ -40,3 +40,12 @@ type SetSpecRequest struct {
 type SpecSetter interface {
 	SetSpec(ctx context.Context, req SetSpecRequest) (*domain.Spec, error)
 }
+
+// Spec is the combined driving surface for the spec subcommand group.
+// Individual CLI subcommands still take the narrow port they actually
+// need; the bundle exists only to keep root-command wiring flat.
+type Spec interface {
+	SpecCreator
+	SpecReader
+	SpecSetter
+}

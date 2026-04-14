@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newFeatureCmd(creator driving.FeatureCreator, reader driving.FeatureReader, setter driving.FeatureSetter, epicReader driving.EpicReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newFeatureCmd(feature driving.Feature, parent driving.Epic, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "feature",
 		Short: "Manage features — coherent chunks of capability under an epic",
 	}
 
-	cmd.AddCommand(newFeatureNewCmd(creator))
-	cmd.AddCommand(newFeatureListCmd(reader))
-	cmd.AddCommand(newFeatureShowCmd(reader, epicReader, linkReader, refReader))
-	cmd.AddCommand(newFeatureSetCmd(setter))
-	cmd.AddCommand(newFeatureEditCmd(reader, setter, editor))
+	cmd.AddCommand(newFeatureNewCmd(feature))
+	cmd.AddCommand(newFeatureListCmd(feature))
+	cmd.AddCommand(newFeatureShowCmd(feature, parent, link, ref))
+	cmd.AddCommand(newFeatureSetCmd(feature))
+	cmd.AddCommand(newFeatureEditCmd(feature, feature, editor))
 	return cmd
 }
 

@@ -77,3 +77,21 @@ type RefRemover interface {
 type RefReader interface {
 	ListRefs(ctx context.Context, rootDir string, entityID string) ([]domain.Ref, error)
 }
+
+// Link is the combined driving surface for the link subcommand group.
+// Individual CLI subcommands still take the narrow port they actually
+// need; the bundle exists only to keep root-command wiring flat.
+type Link interface {
+	LinkAdder
+	LinkRemover
+	LinkReader
+}
+
+// Ref is the combined driving surface for the ref subcommand group.
+// Individual CLI subcommands still take the narrow port they actually
+// need; the bundle exists only to keep root-command wiring flat.
+type Ref interface {
+	RefAdder
+	RefRemover
+	RefReader
+}

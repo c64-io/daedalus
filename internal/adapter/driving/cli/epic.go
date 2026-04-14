@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newEpicCmd(creator driving.EpicCreator, reader driving.EpicReader, setter driving.EpicSetter, ideaReader driving.IdeaReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newEpicCmd(epic driving.Epic, parent driving.Idea, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "epic",
 		Short: "Manage epics — major capabilities under an idea",
 	}
 
-	cmd.AddCommand(newEpicNewCmd(creator))
-	cmd.AddCommand(newEpicListCmd(reader))
-	cmd.AddCommand(newEpicShowCmd(reader, ideaReader, linkReader, refReader))
-	cmd.AddCommand(newEpicSetCmd(setter))
-	cmd.AddCommand(newEpicEditCmd(reader, setter, editor))
+	cmd.AddCommand(newEpicNewCmd(epic))
+	cmd.AddCommand(newEpicListCmd(epic))
+	cmd.AddCommand(newEpicShowCmd(epic, parent, link, ref))
+	cmd.AddCommand(newEpicSetCmd(epic))
+	cmd.AddCommand(newEpicEditCmd(epic, epic, editor))
 	return cmd
 }
 

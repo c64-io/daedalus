@@ -43,3 +43,13 @@ type SetIdeaRequest struct {
 type IdeaSetter interface {
 	SetIdea(ctx context.Context, req SetIdeaRequest) (*domain.Idea, error)
 }
+
+// Idea is the combined driving surface for the idea subcommand group.
+// Individual CLI subcommands still take the narrow port they actually
+// need (interface segregation); the bundle exists only to keep
+// root-command wiring flat.
+type Idea interface {
+	IdeaCreator
+	IdeaReader
+	IdeaSetter
+}

@@ -9,35 +9,22 @@ import (
 
 // NewRootCmd builds the root `d7` command tree, wiring in the driving
 // ports provided by the composition root.
+//
+// Each subtree takes a single bundled interface (e.g. driving.Idea
+// embeds IdeaCreator+IdeaReader+IdeaSetter) so the root signature
+// stays flat. Individual CLI subcommand builders still narrow down to
+// the specific verb they implement, which preserves interface
+// segregation at the actual call sites.
 func NewRootCmd(
-	initializer driving.WorkspaceInitializer,
-	statusReader driving.WorkspaceStatusReader,
-	descReader driving.WorkspaceDescriptionReader,
-	descWriter driving.WorkspaceDescriptionWriter,
-	ideaCreator driving.IdeaCreator,
-	ideaReader driving.IdeaReader,
-	ideaSetter driving.IdeaSetter,
-	epicCreator driving.EpicCreator,
-	epicReader driving.EpicReader,
-	epicSetter driving.EpicSetter,
-	featureCreator driving.FeatureCreator,
-	featureReader driving.FeatureReader,
-	featureSetter driving.FeatureSetter,
-	storyCreator driving.StoryCreator,
-	storyReader driving.StoryReader,
-	storySetter driving.StorySetter,
-	specCreator driving.SpecCreator,
-	specReader driving.SpecReader,
-	specSetter driving.SpecSetter,
-	scenarioCreator driving.ScenarioCreator,
-	scenarioReader driving.ScenarioReader,
-	scenarioSetter driving.ScenarioSetter,
-	linkAdder driving.LinkAdder,
-	linkRemover driving.LinkRemover,
-	linkReader driving.LinkReader,
-	refAdder driving.RefAdder,
-	refRemover driving.RefRemover,
-	refReader driving.RefReader,
+	ws driving.Workspace,
+	idea driving.Idea,
+	epic driving.Epic,
+	feature driving.Feature,
+	story driving.Story,
+	spec driving.Spec,
+	scenario driving.Scenario,
+	link driving.Link,
+	ref driving.Ref,
 	expander driving.Expander,
 	editor driven.Editor,
 ) *cobra.Command {
@@ -49,16 +36,16 @@ func NewRootCmd(
 		SilenceErrors: false,
 	}
 
-	root.AddCommand(newInitCmd(initializer))
-	root.AddCommand(newWorkspaceCmd(statusReader, descReader, descWriter, editor))
-	root.AddCommand(newIdeaCmd(ideaCreator, ideaReader, ideaSetter, linkReader, refReader, editor))
-	root.AddCommand(newEpicCmd(epicCreator, epicReader, epicSetter, ideaReader, linkReader, refReader, editor))
-	root.AddCommand(newFeatureCmd(featureCreator, featureReader, featureSetter, epicReader, linkReader, refReader, editor))
-	root.AddCommand(newStoryCmd(storyCreator, storyReader, storySetter, featureReader, linkReader, refReader, editor))
-	root.AddCommand(newSpecCmd(specCreator, specReader, specSetter, storyReader, linkReader, refReader, editor))
-	root.AddCommand(newScenarioCmd(scenarioCreator, scenarioReader, scenarioSetter, specReader, linkReader, refReader, editor))
-	root.AddCommand(newLinkCmd(linkAdder, linkRemover, linkReader))
-	root.AddCommand(newRefCmd(refAdder, refRemover, refReader))
+	root.AddCommand(newInitCmd(ws))
+	root.AddCommand(newWorkspaceCmd(ws, editor))
+	root.AddCommand(newIdeaCmd(idea, link, ref, editor))
+	root.AddCommand(newEpicCmd(epic, idea, link, ref, editor))
+	root.AddCommand(newFeatureCmd(feature, epic, link, ref, editor))
+	root.AddCommand(newStoryCmd(story, feature, link, ref, editor))
+	root.AddCommand(newSpecCmd(spec, story, link, ref, editor))
+	root.AddCommand(newScenarioCmd(scenario, spec, link, ref, editor))
+	root.AddCommand(newLinkCmd(link))
+	root.AddCommand(newRefCmd(ref))
 	root.AddCommand(newExpandCmd(expander))
 	return root
 }

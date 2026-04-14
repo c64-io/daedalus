@@ -9,7 +9,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newInitCmd(initializer driving.WorkspaceInitializer) *cobra.Command {
+func newInitCmd(ws driving.Workspace) *cobra.Command {
 	var lang string
 
 	cmd := &cobra.Command{
@@ -31,7 +31,7 @@ func newInitCmd(initializer driving.WorkspaceInitializer) *cobra.Command {
 				return err
 			}
 
-			ws, err := initializer.Init(cmd.Context(), driving.InitRequest{
+			wsInfo, err := ws.Init(cmd.Context(), driving.InitRequest{
 				RootDir: root,
 				Target:  target,
 			})
@@ -41,7 +41,7 @@ func newInitCmd(initializer driving.WorkspaceInitializer) *cobra.Command {
 
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"initialized d7 workspace at %s (target: %s)\n",
-				ws.Dir, target)
+				wsInfo.Dir, target)
 			return nil
 		},
 	}

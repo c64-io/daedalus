@@ -54,3 +54,13 @@ type SetScenarioRequest struct {
 type ScenarioSetter interface {
 	SetScenario(ctx context.Context, req SetScenarioRequest) (*domain.Scenario, error)
 }
+
+// Scenario is the combined driving surface for the scenario subcommand
+// group. Individual CLI subcommands still take the narrow port they
+// actually need; the bundle exists only to keep root-command wiring
+// flat.
+type Scenario interface {
+	ScenarioCreator
+	ScenarioReader
+	ScenarioSetter
+}

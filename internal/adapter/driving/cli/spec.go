@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newSpecCmd(creator driving.SpecCreator, reader driving.SpecReader, setter driving.SpecSetter, storyReader driving.StoryReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newSpecCmd(spec driving.Spec, parent driving.Story, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "spec",
 		Short: "Manage specs — prose requirements attached to a story",
 	}
 
-	cmd.AddCommand(newSpecNewCmd(creator))
-	cmd.AddCommand(newSpecListCmd(reader))
-	cmd.AddCommand(newSpecShowCmd(reader, storyReader, linkReader, refReader))
-	cmd.AddCommand(newSpecSetCmd(setter))
-	cmd.AddCommand(newSpecEditCmd(reader, setter, editor))
+	cmd.AddCommand(newSpecNewCmd(spec))
+	cmd.AddCommand(newSpecListCmd(spec))
+	cmd.AddCommand(newSpecShowCmd(spec, parent, link, ref))
+	cmd.AddCommand(newSpecSetCmd(spec))
+	cmd.AddCommand(newSpecEditCmd(spec, spec, editor))
 	return cmd
 }
 

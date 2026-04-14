@@ -44,3 +44,13 @@ type SetStoryRequest struct {
 type StorySetter interface {
 	SetStory(ctx context.Context, req SetStoryRequest) (*domain.Story, error)
 }
+
+// Story is the combined driving surface for the story subcommand
+// group. Individual CLI subcommands still take the narrow port they
+// actually need; the bundle exists only to keep root-command wiring
+// flat.
+type Story interface {
+	StoryCreator
+	StoryReader
+	StorySetter
+}

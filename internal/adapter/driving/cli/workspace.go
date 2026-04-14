@@ -11,20 +11,15 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newWorkspaceCmd(
-	statusReader driving.WorkspaceStatusReader,
-	descReader driving.WorkspaceDescriptionReader,
-	descWriter driving.WorkspaceDescriptionWriter,
-	editor driven.Editor,
-) *cobra.Command {
+func newWorkspaceCmd(ws driving.Workspace, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",
 		Short: "Manage the d7 workspace",
 	}
 
-	cmd.AddCommand(newWorkspaceStatusCmd(statusReader))
-	cmd.AddCommand(newWorkspaceShowCmd(descReader))
-	cmd.AddCommand(newWorkspaceEditCmd(descReader, descWriter, statusReader, editor))
+	cmd.AddCommand(newWorkspaceStatusCmd(ws))
+	cmd.AddCommand(newWorkspaceShowCmd(ws))
+	cmd.AddCommand(newWorkspaceEditCmd(ws, ws, ws, editor))
 	return cmd
 }
 

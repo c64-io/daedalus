@@ -10,15 +10,15 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newRefCmd(adder driving.RefAdder, remover driving.RefRemover, reader driving.RefReader) *cobra.Command {
+func newRefCmd(ref driving.Ref) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ref",
 		Short: "Manage external references (URLs) attached to entities",
 	}
 
-	cmd.AddCommand(newRefAddCmd(adder))
-	cmd.AddCommand(newRefRmCmd(remover))
-	cmd.AddCommand(newRefListCmd(reader))
+	cmd.AddCommand(newRefAddCmd(ref))
+	cmd.AddCommand(newRefRmCmd(ref))
+	cmd.AddCommand(newRefListCmd(ref))
 	return cmd
 }
 

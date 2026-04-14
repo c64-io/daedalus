@@ -20,6 +20,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
@@ -31,38 +32,50 @@ import (
 // Client is the concrete AIAssistant implementation. It is a thin
 // wrapper around the Anthropic SDK's MessageService with our port's
 // translation code and error classifier bolted on.
+//
+// The SDK client is built lazily on the first Chat() call. This lets
+// `d7` run data-only commands (idea new, epic list, …) with
+// ANTHROPIC_API_KEY unset — the missing-key error only surfaces when
+// an AI command actually tries to talk to the model.
 type Client struct {
-	sdk sdk.Client
+	opts    []sdkoption.RequestOption
+	once    sync.Once
+	sdk     sdk.Client
+	initErr error
 }
 
 // Compile-time assertion that Client satisfies the port.
 var _ driven.AIAssistant = (*Client)(nil)
 
-// NewClient builds a Client from the ANTHROPIC_API_KEY environment
-// variable. Callers may pass additional SDK options for tests (such
-// as option.WithBaseURL for a stub server).
+// New builds a Client. It does NOT read ANTHROPIC_API_KEY yet — the
+// env var is consulted on the first Chat() call, which is what lets
+// data-only d7 commands run without it.
 //
-// Returns driven.ErrAIAuthFailed when the API key is empty so the
-// CLI can print a friendly "set ANTHROPIC_API_KEY" hint rather than
-// making a doomed HTTP call.
-func NewClient(opts ...sdkoption.RequestOption) (*Client, error) {
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		return nil, fmt.Errorf("%w: ANTHROPIC_API_KEY is not set", driven.ErrAIAuthFailed)
-	}
-	c := sdk.NewClient(opts...)
-	return &Client{sdk: c}, nil
-}
-
-// NewClientWithSDK builds a Client from an already-constructed SDK
-// client. Primarily used by tests to inject a stub HTTP base URL.
-func NewClientWithSDK(c sdk.Client) *Client {
-	return &Client{sdk: c}
+// Callers may pass additional SDK options for tests (such as
+// option.WithBaseURL for a stub server).
+func New(opts ...sdkoption.RequestOption) *Client {
+	return &Client{opts: opts}
 }
 
 // Chat translates a ChatRequest into a MessageNewParams, calls the
 // provider, and translates the first tool_use (or text) block back
 // into a ChatResponse. Errors are mapped to our sentinel set.
+//
+// The SDK client is built on the first call under a sync.Once so a
+// missing ANTHROPIC_API_KEY surfaces as driven.ErrAIAuthFailed here
+// rather than at construction time.
 func (c *Client) Chat(ctx context.Context, req driven.ChatRequest) (*driven.ChatResponse, error) {
+	c.once.Do(func() {
+		if os.Getenv("ANTHROPIC_API_KEY") == "" {
+			c.initErr = fmt.Errorf("%w: ANTHROPIC_API_KEY is not set", driven.ErrAIAuthFailed)
+			return
+		}
+		c.sdk = sdk.NewClient(c.opts...)
+	})
+	if c.initErr != nil {
+		return nil, c.initErr
+	}
+
 	params := c.buildParams(req)
 
 	msg, err := c.sdk.Messages.New(ctx, params)

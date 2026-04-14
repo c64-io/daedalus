@@ -44,3 +44,13 @@ type SetFeatureRequest struct {
 type FeatureSetter interface {
 	SetFeature(ctx context.Context, req SetFeatureRequest) (*domain.Feature, error)
 }
+
+// Feature is the combined driving surface for the feature subcommand
+// group. Individual CLI subcommands still take the narrow port they
+// actually need; the bundle exists only to keep root-command wiring
+// flat.
+type Feature interface {
+	FeatureCreator
+	FeatureReader
+	FeatureSetter
+}

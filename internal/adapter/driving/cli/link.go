@@ -11,7 +11,7 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newLinkCmd(adder driving.LinkAdder, remover driving.LinkRemover, reader driving.LinkReader) *cobra.Command {
+func newLinkCmd(link driving.Link) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "link",
 		Short: "Manage typed cross-links between entities",
@@ -23,9 +23,9 @@ Link kinds:
   duplicates   A duplicates B (symmetric)`,
 	}
 
-	cmd.AddCommand(newLinkAddCmd(adder))
-	cmd.AddCommand(newLinkRmCmd(remover))
-	cmd.AddCommand(newLinkListCmd(reader))
+	cmd.AddCommand(newLinkAddCmd(link))
+	cmd.AddCommand(newLinkRmCmd(link))
+	cmd.AddCommand(newLinkListCmd(link))
 	return cmd
 }
 

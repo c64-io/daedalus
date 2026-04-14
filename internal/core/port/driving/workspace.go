@@ -44,3 +44,14 @@ type WorkspaceDescriptionReader interface {
 type WorkspaceDescriptionWriter interface {
 	WriteWorkspaceDescription(ctx context.Context, rootDir string, content string) error
 }
+
+// Workspace is the combined driving surface for the workspace
+// subcommand group. Individual CLI subcommands still take the narrow
+// port they actually need (interface segregation); the bundle exists
+// only to keep root-command wiring flat.
+type Workspace interface {
+	WorkspaceInitializer
+	WorkspaceStatusReader
+	WorkspaceDescriptionReader
+	WorkspaceDescriptionWriter
+}

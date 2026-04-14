@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newStoryCmd(creator driving.StoryCreator, reader driving.StoryReader, setter driving.StorySetter, featureReader driving.FeatureReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newStoryCmd(story driving.Story, parent driving.Feature, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "story",
 		Short: "Manage stories — user-visible slices of a feature",
 	}
 
-	cmd.AddCommand(newStoryNewCmd(creator))
-	cmd.AddCommand(newStoryListCmd(reader))
-	cmd.AddCommand(newStoryShowCmd(reader, featureReader, linkReader, refReader))
-	cmd.AddCommand(newStorySetCmd(setter))
-	cmd.AddCommand(newStoryEditCmd(reader, setter, editor))
+	cmd.AddCommand(newStoryNewCmd(story))
+	cmd.AddCommand(newStoryListCmd(story))
+	cmd.AddCommand(newStoryShowCmd(story, parent, link, ref))
+	cmd.AddCommand(newStorySetCmd(story))
+	cmd.AddCommand(newStoryEditCmd(story, story, editor))
 	return cmd
 }
 

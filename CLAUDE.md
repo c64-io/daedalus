@@ -275,21 +275,32 @@ internal/core/
   domain/                                     # Idea, Epic, Feature, Story, Spec, Scenario,
                                               #   Status, Priority, Size, Link, HistoryEntry
   port/
-    driving/                                  # inbound ports (CLI → service)
+    driving/                                  # inbound ports (CLI → service).
+                                              #   Each file defines narrow verb ports plus a
+                                              #   subtree-level bundle interface embedding them,
+                                              #   used at NewRootCmd's wiring seam.
       workspace.go                            # InitRequest, WorkspaceInitializer,
-                                              #   WorkspaceStatusReader, WorkspaceDescription{Reader,Writer}
-      idea.go                                 # CreateIdeaRequest, IdeaCreator, IdeaReader, IdeaSetter
-      epic.go                                 # CreateEpicRequest, EpicCreator, EpicReader, EpicSetter
-      feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader, FeatureSetter
-      story.go                                # CreateStoryRequest, StoryCreator, StoryReader, StorySetter
-      spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader, SpecSetter
-      scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
+                                              #   WorkspaceStatusReader, WorkspaceDescription{Reader,Writer},
+                                              #   Workspace (bundle)
+      idea.go                                 # CreateIdeaRequest, IdeaCreator, IdeaReader,
+                                              #   IdeaSetter, Idea (bundle)
+      epic.go                                 # CreateEpicRequest, EpicCreator, EpicReader,
+                                              #   EpicSetter, Epic (bundle)
+      feature.go                              # CreateFeatureRequest, FeatureCreator, FeatureReader,
+                                              #   FeatureSetter, Feature (bundle)
+      story.go                                # CreateStoryRequest, StoryCreator, StoryReader,
+                                              #   StorySetter, Story (bundle)
+      spec.go                                 # CreateSpecRequest, SpecCreator, SpecReader,
+                                              #   SpecSetter, Spec (bundle)
+      scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader,
+                                              #   ScenarioSetter, Scenario (bundle)
       link.go                                 # AddLinkRequest, LinkAdder, LinkRemover, LinkReader,
-                                              #   AddRefRequest, RefAdder, RefRemover, RefReader, ResolvedLink
+                                              #   Link (bundle), AddRefRequest, RefAdder, RefRemover,
+                                              #   RefReader, Ref (bundle), ResolvedLink
       ai.go                                   # ExpandIdeaRequest, ExpandEpicRequest,
                                               #   ExpandFeatureRequest, ExpandStoryRequest,
                                               #   IdeaExpander, EpicExpander, FeatureExpander,
-                                              #   StoryExpander, Expander (combined bundle)
+                                              #   StoryExpander, Expander (bundle)
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -492,9 +503,12 @@ Implemented:
   `LinkAdder`, `LinkRemover`, `LinkReader`,
   `RefAdder`, `RefRemover`, `RefReader`,
   `IdeaExpander`, `EpicExpander`, `FeatureExpander`, `StoryExpander`,
-  `Expander` (combined bundle of the four per-entity expanders,
-  used at the root-wiring seam to keep `NewRootCmd`'s parameter
-  list flat).
+  plus per-subtree bundle interfaces (`Workspace`, `Idea`, `Epic`,
+  `Feature`, `Story`, `Spec`, `Scenario`, `Link`, `Ref`, `Expander`)
+  that embed the narrow ports — used at the root-wiring seam to keep
+  `NewRootCmd`'s parameter list flat (11 bundles vs. 30 narrow ports)
+  while individual CLI subcommands still take the exact narrow port
+  they need.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
   `ScenarioRepository`, `LinkRepository`, `RefRepository`,
@@ -531,7 +545,11 @@ Implemented:
   Story), but they all share the same submit_proposal schema
   (`{description: string}`). Requires `ANTHROPIC_API_KEY` in
   the environment — but only for AI commands; data-only
-  commands still run with the variable unset.
+  commands still run with the variable unset. The lazy-init
+  lives inside the Anthropic adapter (the SDK client is built
+  under `sync.Once` on the first `Chat()` call), so the
+  composition root wires `ExpandService` eagerly alongside
+  every other service — no shim in `cmd/d7`.
 
 Not yet implemented: additional AI commands (`d7 suggest`, `d7 refine`,
 multi-item pickers), Gherkin export (including the mandatory

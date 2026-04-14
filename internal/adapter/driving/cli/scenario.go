@@ -12,17 +12,17 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-func newScenarioCmd(creator driving.ScenarioCreator, reader driving.ScenarioReader, setter driving.ScenarioSetter, specReader driving.SpecReader, linkReader driving.LinkReader, refReader driving.RefReader, editor driven.Editor) *cobra.Command {
+func newScenarioCmd(scenario driving.Scenario, parent driving.Spec, link driving.Link, ref driving.Ref, editor driven.Editor) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scenario",
 		Short: "Manage scenarios — Given/When/Then steps attached to a spec",
 	}
 
-	cmd.AddCommand(newScenarioNewCmd(creator))
-	cmd.AddCommand(newScenarioListCmd(reader))
-	cmd.AddCommand(newScenarioShowCmd(reader, specReader, linkReader, refReader))
-	cmd.AddCommand(newScenarioSetCmd(setter))
-	cmd.AddCommand(newScenarioEditCmd(reader, setter, editor))
+	cmd.AddCommand(newScenarioNewCmd(scenario))
+	cmd.AddCommand(newScenarioListCmd(scenario))
+	cmd.AddCommand(newScenarioShowCmd(scenario, parent, link, ref))
+	cmd.AddCommand(newScenarioSetCmd(scenario))
+	cmd.AddCommand(newScenarioEditCmd(scenario, scenario, editor))
 	return cmd
 }
 

@@ -44,3 +44,12 @@ type SetEpicRequest struct {
 type EpicSetter interface {
 	SetEpic(ctx context.Context, req SetEpicRequest) (*domain.Epic, error)
 }
+
+// Epic is the combined driving surface for the epic subcommand group.
+// Individual CLI subcommands still take the narrow port they actually
+// need; the bundle exists only to keep root-command wiring flat.
+type Epic interface {
+	EpicCreator
+	EpicReader
+	EpicSetter
+}

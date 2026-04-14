@@ -19,23 +19,20 @@ import (
 )
 
 // newClientAgainst builds a Client pointed at the given test server.
-// It sets ANTHROPIC_API_KEY through the env so NewClient succeeds,
-// then uses the SDK's WithBaseURL to redirect to the stub.
+// It sets ANTHROPIC_API_KEY through the env so the lazy init inside
+// Chat() succeeds, then uses the SDK's WithBaseURL to redirect to
+// the stub.
 func newClientAgainst(t *testing.T, ts *httptest.Server) *anthropicadapter.Client {
 	t.Helper()
 	t.Setenv("ANTHROPIC_API_KEY", "test-key")
 
-	c, err := anthropicadapter.NewClient(
+	return anthropicadapter.New(
 		sdkoption.WithBaseURL(ts.URL+"/"),
 		sdkoption.WithMaxRetries(0),
 	)
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-	return c
 }
 
-func TestNewClient_MissingAPIKeyFailsFast(t *testing.T) {
+func TestChat_MissingAPIKeyFailsAtCallTime(t *testing.T) {
 	// Temporarily unset ANTHROPIC_API_KEY for the duration of this
 	// test without disturbing other tests. t.Setenv resets on cleanup.
 	orig, hadOrig := os.LookupEnv("ANTHROPIC_API_KEY")
@@ -50,7 +47,11 @@ func TestNewClient_MissingAPIKeyFailsFast(t *testing.T) {
 		}
 	})
 
-	_, err := anthropicadapter.NewClient()
+	// Construction no longer reads the env var — the check is
+	// deferred to the first Chat() call so data-only commands can
+	// run with the variable unset.
+	c := anthropicadapter.New()
+	_, err := c.Chat(context.Background(), driven.ChatRequest{Model: "x", MaxTokens: 1})
 	if !errors.Is(err, driven.ErrAIAuthFailed) {
 		t.Fatalf("expected ErrAIAuthFailed, got %v", err)
 	}
