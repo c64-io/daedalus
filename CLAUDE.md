@@ -286,7 +286,10 @@ internal/core/
       scenario.go                             # CreateScenarioRequest, ScenarioCreator, ScenarioReader, ScenarioSetter
       link.go                                 # AddLinkRequest, LinkAdder, LinkRemover, LinkReader,
                                               #   AddRefRequest, RefAdder, RefRemover, RefReader, ResolvedLink
-      ai.go                                   # ExpandStoryRequest, StoryExpander
+      ai.go                                   # ExpandIdeaRequest, ExpandEpicRequest,
+                                              #   ExpandFeatureRequest, ExpandStoryRequest,
+                                              #   IdeaExpander, EpicExpander, FeatureExpander,
+                                              #   StoryExpander, Expander (combined bundle)
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -488,7 +491,10 @@ Implemented:
   `ScenarioCreator`, `ScenarioReader`, `ScenarioSetter`,
   `LinkAdder`, `LinkRemover`, `LinkReader`,
   `RefAdder`, `RefRemover`, `RefReader`,
-  `StoryExpander`.
+  `IdeaExpander`, `EpicExpander`, `FeatureExpander`, `StoryExpander`,
+  `Expander` (combined bundle of the four per-entity expanders,
+  used at the root-wiring seam to keep `NewRootCmd`'s parameter
+  list flat).
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
   `ScenarioRepository`, `LinkRepository`, `RefRepository`,
@@ -499,21 +505,32 @@ Implemented:
   prompt caching on System + Context), `cliinteraction` (stdin/stdout
   + `$EDITOR` Interaction), `ttystatus` (one-line TTY-aware status
   renderer), `clockexec` (time.Now/Sleep).
-- `d7 expand story <story-id> [--model <id>]` runs an interactive
-  interview-first AI dialog and, on acceptance, replaces the
-  Story's Description with the approved text. The dialog loop is
-  a non-recursive state machine (see
-  `internal/core/service/ai_loop.go`) driven through the
-  `AIAssistant`, `Interaction`, `StatusRenderer`, and `Clock`
-  ports. Defaults: `claude-haiku-4-5-20251001` model, 10-question
-  interview budget, 2 malformed-response retries, 3 rate-limit
-  backoff retries with exponential doubling and Retry-After
-  honoring. During Review the founder picks `[a]ccept` /
-  `[c]ritique` / `[e]dit` / `[q]uit`; critique rewinds the
-  conversation into a new LLM turn, edit opens `$EDITOR` on the
-  proposal JSON and re-validates before applying. Abort is a
-  clean exit with no DB writes. Requires `ANTHROPIC_API_KEY`
-  in the environment — but only for AI commands; data-only
+- `d7 expand idea <idea-id> [--model <id>]`,
+  `d7 expand epic <epic-id> [--model <id>]`,
+  `d7 expand feature <feature-id> [--model <id>]`, and
+  `d7 expand story <story-id> [--model <id>]` each run an
+  interactive interview-first AI dialog and, on acceptance,
+  replace that entity's Description with the approved text. All
+  four commands share a single `ExpandService` that walks the
+  entity's own parent chain into the dialog context: Idea has no
+  ancestors (workspace description only), Epic includes the
+  parent Idea, Feature includes Idea + Epic, Story includes Idea
+  + Epic + Feature. The dialog loop itself is a non-recursive
+  state machine (see `internal/core/service/ai_loop.go`) driven
+  through the `AIAssistant`, `Interaction`, `StatusRenderer`,
+  and `Clock` ports. Defaults: `claude-haiku-4-5-20251001` model,
+  10-question interview budget, 2 malformed-response retries, 3
+  rate-limit backoff retries with exponential doubling and
+  Retry-After honoring. During Review the founder picks
+  `[a]ccept` / `[c]ritique` / `[e]dit` / `[q]uit`; critique
+  rewinds the conversation into a new LLM turn, edit opens
+  `$EDITOR` on the proposal JSON and re-validates before
+  applying. Abort is a clean exit with no DB writes. Each
+  command has its own entity-specific system prompt (spark for
+  Idea, capability for Epic, chunk for Feature, slice for
+  Story), but they all share the same submit_proposal schema
+  (`{description: string}`). Requires `ANTHROPIC_API_KEY` in
+  the environment — but only for AI commands; data-only
   commands still run with the variable unset.
 
 Not yet implemented: additional AI commands (`d7 suggest`, `d7 refine`,
@@ -592,10 +609,34 @@ EDITOR=cat /tmp/d7 scenario edit SCEN-001
 # type `/quit` to cancel with no DB writes. At review time:
 #   a = accept   c = critique (then end with `.` on its own line)
 #   e = edit the proposal JSON in $EDITOR   q = quit
-/tmp/d7 story new --feature FEAT-001 --title "User exports orders to CSV"
 export ANTHROPIC_API_KEY=sk-ant-...
-/tmp/d7 expand story STORY-003
-/tmp/d7 story show STORY-003   # Description now populated + history entry
+
+# Expand works at every level of the hierarchy; each command walks
+# its own parent chain into the dialog context. Run it top-down so
+# each lower level inherits the description of what was just drafted.
+/tmp/d7 idea new --title "Coupon system"
+/tmp/d7 expand idea IDEA-002                # no ancestors; workspace desc only
+/tmp/d7 idea show IDEA-002                  # Description now populated + history entry
+
+/tmp/d7 idea set IDEA-002 --status refined
+/tmp/d7 epic new --idea IDEA-002 --title "Coupon redemption"
+/tmp/d7 expand epic EPIC-002                # ancestors: IDEA-002
+/tmp/d7 epic show EPIC-002
+
+/tmp/d7 epic set EPIC-002 --status refined
+/tmp/d7 feature new --epic EPIC-002 --title "Checkout redemption"
+/tmp/d7 expand feature FEAT-002             # ancestors: IDEA-002 + EPIC-002
+/tmp/d7 feature show FEAT-002
+
+/tmp/d7 feature set FEAT-002 --status refined
+/tmp/d7 story new --feature FEAT-002 --title "User exports orders to CSV"
+/tmp/d7 expand story STORY-003              # ancestors: IDEA-002 + EPIC-002 + FEAT-002
+/tmp/d7 story show STORY-003
+
+# Abort path: type `/quit` at the first question — no DB writes.
+/tmp/d7 idea new --title "Abort test"
+/tmp/d7 expand idea IDEA-003
+/tmp/d7 idea show IDEA-003                  # Description still empty
 ```
 
 ## Working in this repo (for Claude Code sessions)

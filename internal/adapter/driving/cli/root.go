@@ -38,7 +38,7 @@ func NewRootCmd(
 	refAdder driving.RefAdder,
 	refRemover driving.RefRemover,
 	refReader driving.RefReader,
-	storyExpander driving.StoryExpander,
+	expander driving.Expander,
 	editor driven.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
@@ -59,6 +59,6 @@ func NewRootCmd(
 	root.AddCommand(newScenarioCmd(scenarioCreator, scenarioReader, scenarioSetter, specReader, linkReader, refReader, editor))
 	root.AddCommand(newLinkCmd(linkAdder, linkRemover, linkReader))
 	root.AddCommand(newRefCmd(refAdder, refRemover, refReader))
-	root.AddCommand(newExpandCmd(storyExpander))
+	root.AddCommand(newExpandCmd(expander))
 	return root
 }

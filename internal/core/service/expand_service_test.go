@@ -45,12 +45,12 @@ func (f *expFakeLLM) Chat(_ context.Context, req driven.ChatRequest) (*driven.Ch
 }
 
 type expFakeInter struct {
-	answers    []driven.Answer
-	decisions  []driven.Decision
-	askIdx     int
-	reviewIdx  int
-	seenQs     []driven.Question
-	seenProps  []driven.Proposal
+	answers   []driven.Answer
+	decisions []driven.Decision
+	askIdx    int
+	reviewIdx int
+	seenQs    []driven.Question
+	seenProps []driven.Proposal
 }
 
 func (f *expFakeInter) Ask(_ context.Context, q driven.Question) (driven.Answer, error) {
@@ -85,18 +85,21 @@ func (c *expFixedClock) Now() time.Time        { return c.now }
 func (c *expFixedClock) Sleep(_ time.Duration) {}
 
 // ---------------------------------------------------------------------
-// Shared setup: build a workspace with a full parent chain and a target
-// story that the expand-service can interrogate.
+// Shared setup: build a workspace with a full parent chain of entities
+// so any expand-* use case can interrogate its own slice of the tree.
 // ---------------------------------------------------------------------
 
 type expandFixture struct {
-	svc       *service.StoryExpandService
-	fs        *fakeFS
-	storyRepo *fakeStoryRepo
-	history   *fakeHistoryRepo
-	llm       *expFakeLLM
-	inter     *expFakeInter
-	clock     *expFixedClock
+	svc         *service.ExpandService
+	fs          *fakeFS
+	ideaRepo    *fakeIdeaRepo
+	epicRepo    *fakeEpicRepo
+	featureRepo *fakeFeatureRepo
+	storyRepo   *fakeStoryRepo
+	history     *fakeHistoryRepo
+	llm         *expFakeLLM
+	inter       *expFakeInter
+	clock       *expFixedClock
 }
 
 func newExpandFixture(t *testing.T, llmScript []expScriptedTurn, answers []driven.Answer, decisions []driven.Decision) *expandFixture {
@@ -163,25 +166,270 @@ func newExpandFixture(t *testing.T, llmScript []expScriptedTurn, answers []drive
 	inter := &expFakeInter{answers: answers, decisions: decisions}
 	clock := &expFixedClock{now: time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)}
 
-	svc := service.NewStoryExpandService(
+	svc := service.NewExpandService(
 		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo,
 		linkRepo, refRepo, resolver, history,
 		llm, inter, expNullStatus{}, clock,
 	)
 
 	return &expandFixture{
-		svc:       svc,
-		fs:        fs,
-		storyRepo: storyRepo,
-		history:   history,
-		llm:       llm,
-		inter:     inter,
-		clock:     clock,
+		svc:         svc,
+		fs:          fs,
+		ideaRepo:    ideaRepo,
+		epicRepo:    epicRepo,
+		featureRepo: featureRepo,
+		storyRepo:   storyRepo,
+		history:     history,
+		llm:         llm,
+		inter:       inter,
+		clock:       clock,
 	}
 }
 
 // ---------------------------------------------------------------------
-// Tests
+// Idea tests
+// ---------------------------------------------------------------------
+
+func TestExpandIdea_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	// Seed an idea with a blank description so the service actually
+	// writes a change and appends history.
+	f := newExpandFixture(t,
+		[]expScriptedTurn{
+			{toolUse: &driven.ToolUseContent{
+				ID: "q1", Name: driven.ToolAskQuestion,
+				Input: map[string]any{"question": "who is this for?", "why": "audience matters"},
+			}},
+			{toolUse: &driven.ToolUseContent{
+				ID: "p1", Name: driven.ToolSubmitProposal,
+				Input: map[string]any{"description": "A coupon SaaS for solo shop owners."},
+			}},
+		},
+		[]driven.Answer{{Kind: driven.AnswerReply, Text: "solo shop owners"}},
+		[]driven.Decision{{Kind: driven.DecisionAccept}},
+	)
+	f.ideaRepo.ideas[0].Description = ""
+
+	got, err := f.svc.ExpandIdea(context.Background(), driving.ExpandIdeaRequest{IdeaID: "IDEA-001"})
+	if err != nil {
+		t.Fatalf("ExpandIdea: %v", err)
+	}
+	wantDesc := "A coupon SaaS for solo shop owners."
+	if got.Description != wantDesc {
+		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
+	}
+
+	// Idea context has NO ancestors — just workspace + target.
+	if len(f.llm.requests) == 0 {
+		t.Fatalf("expected at least one LLM call")
+	}
+	ctxBlock := f.llm.requests[0].Context
+	if !strings.Contains(ctxBlock, "A coupon SaaS.") {
+		t.Errorf("context block missing workspace description; got:\n%s", ctxBlock)
+	}
+	if !strings.Contains(ctxBlock, "IDEA-001") {
+		t.Errorf("context block missing target Idea; got:\n%s", ctxBlock)
+	}
+	// Ideas have no ancestors; parent entity IDs should not appear.
+	for _, ancestor := range []string{"EPIC-001", "FEAT-001", "STORY-001"} {
+		if strings.Contains(ctxBlock, ancestor) {
+			t.Errorf("context block should not contain ancestor %q; got:\n%s", ancestor, ctxBlock)
+		}
+	}
+
+	if len(f.history.entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(f.history.entries))
+	}
+	if f.history.entries[0].Field != "description" {
+		t.Errorf("history field: got %q, want %q", f.history.entries[0].Field, "description")
+	}
+	if f.ideaRepo.ideas[0].Description != wantDesc {
+		t.Errorf("repo not updated; description = %q", f.ideaRepo.ideas[0].Description)
+	}
+}
+
+func TestExpandIdea_AbortNoWrite(t *testing.T) {
+	t.Parallel()
+
+	f := newExpandFixture(t,
+		[]expScriptedTurn{
+			{toolUse: &driven.ToolUseContent{
+				ID: "q1", Name: driven.ToolAskQuestion,
+				Input: map[string]any{"question": "what problem does this solve?"},
+			}},
+		},
+		[]driven.Answer{{Kind: driven.AnswerAbort}},
+		nil,
+	)
+	original := f.ideaRepo.ideas[0].Description
+
+	_, err := f.svc.ExpandIdea(context.Background(), driving.ExpandIdeaRequest{IdeaID: "IDEA-001"})
+	if !errors.Is(err, service.ErrAIDialogAborted) {
+		t.Fatalf("expected ErrAIDialogAborted, got %v", err)
+	}
+	if f.ideaRepo.ideas[0].Description != original {
+		t.Fatalf("description should be unchanged; got %q", f.ideaRepo.ideas[0].Description)
+	}
+	if len(f.history.entries) != 0 {
+		t.Fatalf("expected 0 history entries on abort, got %d", len(f.history.entries))
+	}
+}
+
+func TestExpandIdea_IDRequired(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandIdea(context.Background(), driving.ExpandIdeaRequest{IdeaID: ""})
+	if !errors.Is(err, service.ErrExpandIDRequired) {
+		t.Fatalf("expected ErrExpandIDRequired, got %v", err)
+	}
+}
+
+func TestExpandIdea_NotFound(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandIdea(context.Background(), driving.ExpandIdeaRequest{IdeaID: "IDEA-999"})
+	if err == nil || !errors.Is(err, driven.ErrIdeaNotFound) {
+		t.Fatalf("expected ErrIdeaNotFound, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Epic tests
+// ---------------------------------------------------------------------
+
+func TestExpandEpic_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	f := newExpandFixture(t,
+		[]expScriptedTurn{
+			{toolUse: &driven.ToolUseContent{
+				ID: "p1", Name: driven.ToolSubmitProposal,
+				Input: map[string]any{"description": "Redemption covers checkout and receipt; not promotions."},
+			}},
+		},
+		nil,
+		[]driven.Decision{{Kind: driven.DecisionAccept}},
+	)
+	f.epicRepo.epics[0].Description = ""
+
+	got, err := f.svc.ExpandEpic(context.Background(), driving.ExpandEpicRequest{EpicID: "EPIC-001"})
+	if err != nil {
+		t.Fatalf("ExpandEpic: %v", err)
+	}
+	wantDesc := "Redemption covers checkout and receipt; not promotions."
+	if got.Description != wantDesc {
+		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
+	}
+
+	// Epic context should include the parent Idea and the target Epic,
+	// but not deeper entities.
+	if len(f.llm.requests) == 0 {
+		t.Fatalf("expected at least one LLM call")
+	}
+	ctxBlock := f.llm.requests[0].Context
+	for _, needle := range []string{"A coupon SaaS.", "IDEA-001", "EPIC-001"} {
+		if !strings.Contains(ctxBlock, needle) {
+			t.Errorf("context block missing %q; got:\n%s", needle, ctxBlock)
+		}
+	}
+	for _, descendant := range []string{"FEAT-001", "STORY-001"} {
+		if strings.Contains(ctxBlock, descendant) {
+			t.Errorf("context block should not contain descendant %q; got:\n%s", descendant, ctxBlock)
+		}
+	}
+
+	if len(f.history.entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(f.history.entries))
+	}
+}
+
+func TestExpandEpic_IDRequired(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandEpic(context.Background(), driving.ExpandEpicRequest{EpicID: ""})
+	if !errors.Is(err, service.ErrExpandIDRequired) {
+		t.Fatalf("expected ErrExpandIDRequired, got %v", err)
+	}
+}
+
+func TestExpandEpic_NotFound(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandEpic(context.Background(), driving.ExpandEpicRequest{EpicID: "EPIC-999"})
+	if err == nil || !errors.Is(err, driven.ErrEpicNotFound) {
+		t.Fatalf("expected ErrEpicNotFound, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Feature tests
+// ---------------------------------------------------------------------
+
+func TestExpandFeature_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	f := newExpandFixture(t,
+		[]expScriptedTurn{
+			{toolUse: &driven.ToolUseContent{
+				ID: "p1", Name: driven.ToolSubmitProposal,
+				Input: map[string]any{"description": "At checkout, a shopper enters a code and sees a discount."},
+			}},
+		},
+		nil,
+		[]driven.Decision{{Kind: driven.DecisionAccept}},
+	)
+	f.featureRepo.features[0].Description = ""
+
+	got, err := f.svc.ExpandFeature(context.Background(), driving.ExpandFeatureRequest{FeatureID: "FEAT-001"})
+	if err != nil {
+		t.Fatalf("ExpandFeature: %v", err)
+	}
+	wantDesc := "At checkout, a shopper enters a code and sees a discount."
+	if got.Description != wantDesc {
+		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
+	}
+
+	// Feature context should include both ancestors (Idea + Epic) and the
+	// target Feature, but not the child Story.
+	if len(f.llm.requests) == 0 {
+		t.Fatalf("expected at least one LLM call")
+	}
+	ctxBlock := f.llm.requests[0].Context
+	for _, needle := range []string{"A coupon SaaS.", "IDEA-001", "EPIC-001", "FEAT-001"} {
+		if !strings.Contains(ctxBlock, needle) {
+			t.Errorf("context block missing %q; got:\n%s", needle, ctxBlock)
+		}
+	}
+	if strings.Contains(ctxBlock, "STORY-001") {
+		t.Errorf("context block should not contain descendant STORY-001; got:\n%s", ctxBlock)
+	}
+
+	if len(f.history.entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(f.history.entries))
+	}
+}
+
+func TestExpandFeature_IDRequired(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandFeature(context.Background(), driving.ExpandFeatureRequest{FeatureID: ""})
+	if !errors.Is(err, service.ErrExpandIDRequired) {
+		t.Fatalf("expected ErrExpandIDRequired, got %v", err)
+	}
+}
+
+func TestExpandFeature_NotFound(t *testing.T) {
+	t.Parallel()
+	f := newExpandFixture(t, nil, nil, nil)
+	_, err := f.svc.ExpandFeature(context.Background(), driving.ExpandFeatureRequest{FeatureID: "FEAT-999"})
+	if err == nil || !errors.Is(err, driven.ErrFeatureNotFound) {
+		t.Fatalf("expected ErrFeatureNotFound, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------
+// Story tests — preserved from the original StoryExpandService tests.
 // ---------------------------------------------------------------------
 
 func TestExpandStory_HappyPath(t *testing.T) {
@@ -300,8 +548,8 @@ func TestExpandStory_StoryIDRequired(t *testing.T) {
 	t.Parallel()
 	f := newExpandFixture(t, nil, nil, nil)
 	_, err := f.svc.ExpandStory(context.Background(), driving.ExpandStoryRequest{StoryID: ""})
-	if !errors.Is(err, service.ErrExpandStoryIDRequired) {
-		t.Fatalf("expected ErrExpandStoryIDRequired, got %v", err)
+	if !errors.Is(err, service.ErrExpandIDRequired) {
+		t.Fatalf("expected ErrExpandIDRequired, got %v", err)
 	}
 }
 
