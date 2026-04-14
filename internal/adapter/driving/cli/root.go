@@ -26,6 +26,7 @@ func NewRootCmd(
 	link driving.Link,
 	ref driving.Ref,
 	expander driving.Expander,
+	suggester driving.Suggester,
 	editor driven.Editor,
 ) *cobra.Command {
 	root := &cobra.Command{
@@ -47,5 +48,6 @@ func NewRootCmd(
 	root.AddCommand(newLinkCmd(link))
 	root.AddCommand(newRefCmd(ref))
 	root.AddCommand(newExpandCmd(expander))
+	root.AddCommand(newSuggestCmd(suggester))
 	return root
 }

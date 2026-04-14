@@ -300,7 +300,13 @@ internal/core/
       ai.go                                   # ExpandIdeaRequest, ExpandEpicRequest,
                                               #   ExpandFeatureRequest, ExpandStoryRequest,
                                               #   IdeaExpander, EpicExpander, FeatureExpander,
-                                              #   StoryExpander, Expander (bundle)
+                                              #   StoryExpander, Expander (bundle),
+                                              #   SuggestEpicsRequest, SuggestFeaturesRequest,
+                                              #   SuggestStoriesRequest, SuggestSpecsRequest,
+                                              #   SuggestScenariosRequest, EpicsSuggester,
+                                              #   FeaturesSuggester, StoriesSuggester,
+                                              #   SpecsSuggester, ScenariosSuggester,
+                                              #   Suggester (bundle)
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -550,13 +556,45 @@ Implemented:
   under `sync.Once` on the first `Chat()` call), so the
   composition root wires `ExpandService` eagerly alongside
   every other service — no shim in `cmd/d7`.
+- `d7 suggest epics --idea IDEA-XXX [--model <id>]`,
+  `d7 suggest features --epic EPIC-XXX [--model <id>]`,
+  `d7 suggest stories --feature FEAT-XXX [--model <id>]`,
+  `d7 suggest specs --story STORY-XXX [--model <id>]`, and
+  `d7 suggest scenarios --spec SPEC-XXX [--model <id>]` each
+  run an interactive interview-first AI dialog that proposes a
+  *batch* of child entities under the given parent. The five
+  commands share a single `SuggestService` that walks the parent
+  chain into the same `DialogContext` shape `ExpandService` uses
+  (ancestors + target), re-using `contextSource` helpers extracted
+  to `internal/core/service/ai_context.go`. The dialog reuses the
+  same non-recursive state machine in `ai_loop.go`; the only
+  additions there are an `_accepted []int` out-of-band annotation
+  the review step writes into the payload (so apply knows which
+  items to create) and a `DecisionEditList` kind that treats an
+  edited multi-item JSON buffer as an implicit accept-all. Unlike
+  `ExpandService`, `SuggestService` depends on the driving
+  `EpicCreator` / `FeatureCreator` / `StoryCreator` / `SpecCreator`
+  / `ScenarioCreator` ports so that every created item flows through
+  the same state-machine validation, history tracking, and business
+  rules the CLI uses — this is a horizontal core-core dependency,
+  not a port inversion. The shared submit_proposal schema is
+  `{items: [{title, description}]}` (max 12) for epics/features/
+  stories/specs; scenarios carry `{items: [{title, given[], when[],
+  then[]}]}` instead. At review time the founder picks one of `a`
+  (accept all), `n` (accept none — routes to abort), a comma-
+  separated subset like `1,3,5`, `c` (critique the whole batch),
+  `e` (edit the list in `$EDITOR` and re-validate), or `q` (quit).
+  Same defaults as expand: `claude-haiku-4-5-20251001` model, 10-
+  question interview budget, 2 malformed retries, 3 rate-limit
+  retries. Abort is a clean exit with no DB writes. Requires
+  `ANTHROPIC_API_KEY` in the environment.
 
-Not yet implemented: additional AI commands (`d7 suggest`, `d7 refine`,
-multi-item pickers), Gherkin export (including the mandatory
-`@d7:<ID>` tag prepended at export time), the agentic generator,
-worktree isolation, regeneration, the ScenarioRunner port, and the
-verify loop. All are planned surface area and should be built
-incrementally, each behind its own port, each with the same discipline.
+Not yet implemented: additional AI commands (`d7 refine`), Gherkin
+export (including the mandatory `@d7:<ID>` tag prepended at export
+time), the agentic generator, worktree isolation, regeneration, the
+ScenarioRunner port, and the verify loop. All are planned surface
+area and should be built incrementally, each behind its own port,
+each with the same discipline.
 
 ## Build & verify
 
@@ -655,6 +693,34 @@ export ANTHROPIC_API_KEY=sk-ant-...
 /tmp/d7 idea new --title "Abort test"
 /tmp/d7 expand idea IDEA-003
 /tmp/d7 idea show IDEA-003                  # Description still empty
+
+# Bulk drafting — `d7 suggest` proposes N child entities under a parent.
+# Review grammar: `a` (all), `n` (none → abort), `1,3` (subset),
+# `c` (critique whole batch), `e` (edit list in $EDITOR), `q` (quit).
+/tmp/d7 idea set IDEA-002 --status refined
+/tmp/d7 suggest epics --idea IDEA-002        # batch of proposed Epics
+/tmp/d7 epic list --idea IDEA-002            # accepted ones show up here
+
+# Each suggest level mirrors its expand counterpart and walks the same
+# parent chain into the LLM context.
+/tmp/d7 epic set EPIC-003 --status refined
+/tmp/d7 suggest features --epic EPIC-003
+/tmp/d7 feature list --epic EPIC-003
+
+/tmp/d7 feature set FEAT-003 --status refined
+/tmp/d7 suggest stories --feature FEAT-003
+/tmp/d7 story list --feature FEAT-003
+
+/tmp/d7 story set STORY-004 --status refined
+/tmp/d7 suggest specs --story STORY-004
+/tmp/d7 spec list --story STORY-004
+
+# Scenarios are special: the proposed payload carries Given/When/Then
+# arrays rather than a prose description, but the review grammar is
+# identical.
+/tmp/d7 spec set SPEC-002 --status refined
+/tmp/d7 suggest scenarios --spec SPEC-002
+/tmp/d7 scenario list --spec SPEC-002
 ```
 
 ## Working in this repo (for Claude Code sessions)

@@ -347,6 +347,56 @@ func (d *aiDialog) reviewProposal(ctx context.Context, inter driven.Interaction,
 			}
 			d.lastPayload = edited
 		}
+		// For multi-item proposals, annotate the payload with the
+		// indices the founder accepted. The apply callback reads
+		// "_accepted" to decide which items to persist. Underscore
+		// prefix marks it as out-of-band metadata, not a schema field.
+		if len(dec.PerItem) > 0 {
+			accepted := make([]int, 0, len(dec.PerItem))
+			for i, it := range dec.PerItem {
+				if it.Kind == driven.ItemYes {
+					accepted = append(accepted, i)
+				}
+			}
+			if len(accepted) == 0 {
+				// No items accepted is semantically an abort — nothing
+				// would be created. Route to abort so the CLI prints
+				// the clean "nothing was saved" message.
+				return stateAborted
+			}
+			if d.lastPayload == nil {
+				d.lastPayload = map[string]any{}
+			}
+			d.lastPayload["_accepted"] = accepted
+		}
+		return stateApplyChanges
+
+	case driven.DecisionEditList:
+		// Founder edited the whole list payload in $EDITOR. Re-parse
+		// and re-validate. Every item in the edited list is implicitly
+		// accepted (the edit is the founder's disposition).
+		edited, perr := parseEditedPayload(dec.Edited)
+		if perr != nil {
+			d.lastError = fmt.Errorf("ai: edited list is not valid JSON: %w", perr)
+			return stateFailed
+		}
+		if d.validate != nil {
+			if verr := d.validate(edited); verr != nil {
+				d.lastError = fmt.Errorf("ai: edited list failed validation: %w", verr)
+				return stateFailed
+			}
+		}
+		d.lastPayload = edited
+		if items, ok := d.lastPayload["items"].([]any); ok {
+			accepted := make([]int, len(items))
+			for i := range items {
+				accepted[i] = i
+			}
+			if len(accepted) == 0 {
+				return stateAborted
+			}
+			d.lastPayload["_accepted"] = accepted
+		}
 		return stateApplyChanges
 
 	case driven.DecisionCritique:

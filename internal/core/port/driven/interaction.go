@@ -94,7 +94,8 @@ type Decision struct {
 
 	// Edited carries the founder's in-editor edits when Kind ==
 	// DecisionAccept for a single-item proposal and they edited the
-	// JSON buffer rather than accepting verbatim.
+	// JSON buffer rather than accepting verbatim; it also carries the
+	// edited list payload for Kind == DecisionEditList.
 	Edited string
 }
 
@@ -102,7 +103,8 @@ type Decision struct {
 type DecisionKind int
 
 const (
-	// DecisionAccept commits the proposal (possibly after edits).
+	// DecisionAccept commits the proposal (possibly after edits). For a
+	// multi-item proposal, PerItem indicates which items were accepted.
 	DecisionAccept DecisionKind = iota
 	// DecisionCritique sends the whole batch back to the model with
 	// free-text feedback for a new attempt.
@@ -112,6 +114,10 @@ const (
 	DecisionRetry
 	// DecisionAbort discards the dialog with no DB writes.
 	DecisionAbort
+	// DecisionEditList is the founder's edited JSON for a multi-item
+	// proposal; the service re-validates before applying. Every item
+	// in the edited list is implicitly accepted.
+	DecisionEditList
 )
 
 // ItemDecision is the per-item disposition inside a Decision. y, n,

@@ -13,9 +13,11 @@
 //     content through DecisionAccept.Edited so the service can
 //     re-validate before applying.
 //
-// Multi-item review (DecisionRetry / PerItem) is not implemented here
-// — d7's first AI command is single-item expand-story, and a stdin
-// picker will land with the first multi-item command (suggest).
+// Multi-item review is handled via Proposal.Multiple: each item is
+// printed with its 1-based index, and the founder picks with one of
+// `a` (accept all), `n` (accept none), a comma-separated subset like
+// `1,3,5`, `c` (critique whole batch), `e` (edit whole list in
+// $EDITOR), or `q` (quit).
 package cliinteraction
 
 import (
@@ -24,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/c64-io/daedalus/internal/core/port/driven"
@@ -93,10 +96,22 @@ func (i *Interactor) Ask(ctx context.Context, q driven.Question) (driven.Answer,
 // verdict. Edit routes through DecisionAccept.Edited so the service
 // can re-validate the JSON before applying.
 func (i *Interactor) Review(ctx context.Context, p driven.Proposal) (driven.Decision, error) {
-	if p.Format != driven.ProposalSingle || p.Single == nil {
-		return driven.Decision{}, fmt.Errorf("cliinteraction: only single-item proposals are supported in v1")
+	switch p.Format {
+	case driven.ProposalSingle:
+		if p.Single == nil {
+			return driven.Decision{}, fmt.Errorf("cliinteraction: single proposal has no body")
+		}
+		return i.reviewSingle(ctx, p)
+	case driven.ProposalMultiple:
+		return i.reviewMultiple(ctx, p)
+	default:
+		return driven.Decision{}, fmt.Errorf("cliinteraction: unsupported proposal format %d", p.Format)
 	}
+}
 
+// reviewSingle handles the expand / refine flow: one proposal, yes/no/
+// critique/edit.
+func (i *Interactor) reviewSingle(ctx context.Context, p driven.Proposal) (driven.Decision, error) {
 	fmt.Fprintln(i.out)
 	if p.Single.Title != "" {
 		fmt.Fprintf(i.out, "── %s ──\n", p.Single.Title)
@@ -153,6 +168,170 @@ func (i *Interactor) Review(ctx context.Context, p driven.Proposal) (driven.Deci
 			fmt.Fprintf(i.out, "unrecognized choice %q — type a, c, e, or q.\n", choice)
 		}
 	}
+}
+
+// reviewMultiple handles the suggest flow: N proposed children, each
+// previewed, picker at the bottom. See parseMultiSelect for the input
+// grammar.
+func (i *Interactor) reviewMultiple(ctx context.Context, p driven.Proposal) (driven.Decision, error) {
+	n := len(p.Multiple)
+	if n == 0 {
+		// An empty batch is semantically nothing to accept. Treat as
+		// abort so the caller prints "nothing was saved".
+		return driven.Decision{Kind: driven.DecisionAbort}, nil
+	}
+
+	fmt.Fprintln(i.out)
+	fmt.Fprintf(i.out, "The AI has proposed %d item%s:\n", n, plural(n))
+	for idx, it := range p.Multiple {
+		fmt.Fprintln(i.out)
+		title := it.Title
+		if title == "" {
+			title = fmt.Sprintf("Item %d", idx+1)
+		}
+		fmt.Fprintf(i.out, "── [%d] %s ──\n", idx+1, title)
+		if it.Body != "" {
+			fmt.Fprintln(i.out, it.Body)
+		}
+	}
+	fmt.Fprintln(i.out)
+	fmt.Fprintln(i.out, "Which items would you like to accept?")
+	fmt.Fprintln(i.out, "  [a]ll  [n]one  [1,3,5] subset  [c]ritique  [e]dit list  [q]uit")
+
+	for {
+		fmt.Fprint(i.out, "> ")
+		line, err := i.readLine(ctx)
+		if err != nil {
+			return driven.Decision{}, err
+		}
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		switch lower {
+		case "":
+			continue
+
+		case "a", "all", "accept":
+			return decisionAcceptAll(n), nil
+
+		case "n", "none":
+			// None accepted is effectively abort at the ai_loop layer,
+			// but we still go through DecisionAccept + PerItem so the
+			// "nothing was saved" path in the service is exercised.
+			return decisionAcceptNone(n), nil
+
+		case "c", "critique":
+			critique, err := i.readCritique(ctx)
+			if err != nil {
+				return driven.Decision{}, err
+			}
+			if strings.TrimSpace(critique) == "" {
+				fmt.Fprintln(i.out, "(empty critique; choose again)")
+				continue
+			}
+			return driven.Decision{Kind: driven.DecisionCritique, Critique: critique}, nil
+
+		case "e", "edit":
+			if p.RawJSON == "" {
+				fmt.Fprintln(i.out, "(this proposal has no editable JSON; choose another option)")
+				continue
+			}
+			edited, err := i.editor.Edit(p.RawJSON)
+			if err != nil {
+				return driven.Decision{}, fmt.Errorf("open editor: %w", err)
+			}
+			return driven.Decision{Kind: driven.DecisionEditList, Edited: edited}, nil
+
+		case "q", "quit", "abort", "cancel":
+			return driven.Decision{Kind: driven.DecisionAbort}, nil
+
+		default:
+			picks, perr := parseMultiSelect(trimmed, n)
+			if perr != nil {
+				fmt.Fprintf(i.out, "(%s)\n", perr.Error())
+				continue
+			}
+			return decisionAcceptSubset(n, picks), nil
+		}
+	}
+}
+
+// plural returns "" for 1 and "s" otherwise.
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// parseMultiSelect converts an input like "1,3,5" into a de-duplicated
+// slice of 0-based indices bounded by n. Empty entries are ignored;
+// out-of-range or non-numeric entries produce a descriptive error that
+// the caller shows to the founder before re-prompting.
+func parseMultiSelect(s string, n int) ([]int, error) {
+	parts := strings.Split(s, ",")
+	seen := map[int]struct{}{}
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t == "" {
+			continue
+		}
+		v, err := strconv.Atoi(t)
+		if err != nil {
+			return nil, fmt.Errorf("not a number: %q", t)
+		}
+		if v < 1 || v > n {
+			return nil, fmt.Errorf("out of range: %d (valid: 1..%d)", v, n)
+		}
+		idx := v - 1
+		if _, dup := seen[idx]; dup {
+			continue
+		}
+		seen[idx] = struct{}{}
+		out = append(out, idx)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no items selected; type 'a', 'n', or a comma list like 1,3")
+	}
+	return out, nil
+}
+
+// decisionAcceptAll builds a PerItem slice of all-Yes for the whole
+// batch of n items.
+func decisionAcceptAll(n int) driven.Decision {
+	per := make([]driven.ItemDecision, n)
+	for i := range per {
+		per[i] = driven.ItemDecision{Kind: driven.ItemYes}
+	}
+	return driven.Decision{Kind: driven.DecisionAccept, PerItem: per}
+}
+
+// decisionAcceptNone builds a PerItem slice of all-No; the ai_loop
+// routes this to stateAborted.
+func decisionAcceptNone(n int) driven.Decision {
+	per := make([]driven.ItemDecision, n)
+	for i := range per {
+		per[i] = driven.ItemDecision{Kind: driven.ItemNo}
+	}
+	return driven.Decision{Kind: driven.DecisionAccept, PerItem: per}
+}
+
+// decisionAcceptSubset marks the listed 0-based indices Yes and the
+// rest No.
+func decisionAcceptSubset(n int, picks []int) driven.Decision {
+	yes := map[int]struct{}{}
+	for _, p := range picks {
+		yes[p] = struct{}{}
+	}
+	per := make([]driven.ItemDecision, n)
+	for i := range per {
+		if _, ok := yes[i]; ok {
+			per[i] = driven.ItemDecision{Kind: driven.ItemYes}
+		} else {
+			per[i] = driven.ItemDecision{Kind: driven.ItemNo}
+		}
+	}
+	return driven.Decision{Kind: driven.DecisionAccept, PerItem: per}
 }
 
 // readCritique gathers multi-line feedback. The founder ends the

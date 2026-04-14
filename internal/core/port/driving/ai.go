@@ -81,3 +81,86 @@ type Expander interface {
 	FeatureExpander
 	StoryExpander
 }
+
+// ---------------------------------------------------------------------
+// d7 suggest — bulk drafting of child entities under an existing parent.
+// ---------------------------------------------------------------------
+
+// SuggestEpicsRequest asks the AI to propose several Epics under a
+// parent Idea. The Idea must already exist and be at least `refined`
+// (the same gate the CreateEpic use case enforces). On acceptance, the
+// approved items are created as new Epics; rejected items vanish.
+type SuggestEpicsRequest struct {
+	RootDir string // workspace root; empty = cwd
+	IdeaID  string // parent, required
+	Model   string // optional override; empty = service default
+}
+
+// SuggestFeaturesRequest asks the AI to propose several Features under
+// a parent Epic.
+type SuggestFeaturesRequest struct {
+	RootDir string
+	EpicID  string // parent, required
+	Model   string
+}
+
+// SuggestStoriesRequest asks the AI to propose several Stories under a
+// parent Feature.
+type SuggestStoriesRequest struct {
+	RootDir   string
+	FeatureID string // parent, required
+	Model     string
+}
+
+// SuggestSpecsRequest asks the AI to propose several Specs under a
+// parent Story.
+type SuggestSpecsRequest struct {
+	RootDir string
+	StoryID string // parent, required
+	Model   string
+}
+
+// SuggestScenariosRequest asks the AI to propose several Scenarios
+// under a parent Spec. Scenarios are special-cased because their
+// payload carries Given/When/Then steps rather than a description.
+type SuggestScenariosRequest struct {
+	RootDir string
+	SpecID  string // parent, required
+	Model   string
+}
+
+// EpicsSuggester drives the "suggest epics" AI dialog.
+type EpicsSuggester interface {
+	SuggestEpics(ctx context.Context, req SuggestEpicsRequest) ([]domain.Epic, error)
+}
+
+// FeaturesSuggester drives the "suggest features" AI dialog.
+type FeaturesSuggester interface {
+	SuggestFeatures(ctx context.Context, req SuggestFeaturesRequest) ([]domain.Feature, error)
+}
+
+// StoriesSuggester drives the "suggest stories" AI dialog.
+type StoriesSuggester interface {
+	SuggestStories(ctx context.Context, req SuggestStoriesRequest) ([]domain.Story, error)
+}
+
+// SpecsSuggester drives the "suggest specs" AI dialog.
+type SpecsSuggester interface {
+	SuggestSpecs(ctx context.Context, req SuggestSpecsRequest) ([]domain.Spec, error)
+}
+
+// ScenariosSuggester drives the "suggest scenarios" AI dialog.
+type ScenariosSuggester interface {
+	SuggestScenarios(ctx context.Context, req SuggestScenariosRequest) ([]domain.Scenario, error)
+}
+
+// Suggester is the combined AI-suggest surface, bundled exactly like
+// Expander so the root-command wiring takes one parameter. Individual
+// CLI subcommand builders still narrow down to the verb they implement.
+type Suggester interface {
+	EpicsSuggester
+	FeaturesSuggester
+	StoriesSuggester
+	SpecsSuggester
+	ScenariosSuggester
+}

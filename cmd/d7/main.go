@@ -57,6 +57,12 @@ func main() {
 		linkRepo, refRepo, entityResolver, historyRepo,
 		llm, inter, status, clock,
 	)
+	suggestSvc := service.NewSuggestService(
+		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo, specRepo,
+		linkRepo, refRepo, entityResolver,
+		epicSvc, featureSvc, storySvc, specSvc, scenarioSvc,
+		llm, inter, status, clock,
+	)
 
 	root := cli.NewRootCmd(
 		wsSvc,       // driving.Workspace
@@ -69,6 +75,7 @@ func main() {
 		linkSvc,     // driving.Link
 		linkSvc,     // driving.Ref (same concrete svc)
 		expandSvc,   // driving.Expander
+		suggestSvc,  // driving.Suggester
 		editor,
 	)
 

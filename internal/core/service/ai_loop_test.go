@@ -825,3 +825,219 @@ func TestRunDialog_DefaultsMaxTokens(t *testing.T) {
 		t.Fatalf("expected MaxTokens default 4096, got %d", llm.requests[0].MaxTokens)
 	}
 }
+
+// ---------------------------------------------------------------------
+// Multi-item review paths (suggest)
+// ---------------------------------------------------------------------
+
+func TestRunDialog_MultiItemAcceptAll(t *testing.T) {
+	payload := map[string]any{
+		"items": []any{
+			map[string]any{"title": "A", "description": "x"},
+			map[string]any{"title": "B", "description": "y"},
+			map[string]any{"title": "C", "description": "z"},
+		},
+	}
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", payload)}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind: driven.DecisionAccept,
+			PerItem: []driven.ItemDecision{
+				{Kind: driven.ItemYes},
+				{Kind: driven.ItemYes},
+				{Kind: driven.ItemYes},
+			},
+		}},
+	}
+	var applied map[string]any
+	d := newDialog()
+	d.apply = func(_ context.Context, p map[string]any) (any, error) {
+		applied = p
+		return "ok", nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	acc, ok := applied["_accepted"].([]int)
+	if !ok {
+		t.Fatalf("_accepted missing or wrong type: %T", applied["_accepted"])
+	}
+	if len(acc) != 3 || acc[0] != 0 || acc[1] != 1 || acc[2] != 2 {
+		t.Fatalf("_accepted: got %v, want [0 1 2]", acc)
+	}
+}
+
+func TestRunDialog_MultiItemAcceptSubset(t *testing.T) {
+	payload := map[string]any{
+		"items": []any{
+			map[string]any{"title": "A"},
+			map[string]any{"title": "B"},
+			map[string]any{"title": "C"},
+		},
+	}
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", payload)}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind: driven.DecisionAccept,
+			PerItem: []driven.ItemDecision{
+				{Kind: driven.ItemYes},
+				{Kind: driven.ItemNo},
+				{Kind: driven.ItemYes},
+			},
+		}},
+	}
+	var applied map[string]any
+	d := newDialog()
+	d.apply = func(_ context.Context, p map[string]any) (any, error) {
+		applied = p
+		return "ok", nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	acc, _ := applied["_accepted"].([]int)
+	if len(acc) != 2 || acc[0] != 0 || acc[1] != 2 {
+		t.Fatalf("_accepted: got %v, want [0 2]", acc)
+	}
+}
+
+func TestRunDialog_MultiItemAcceptNoneAborts(t *testing.T) {
+	payload := map[string]any{
+		"items": []any{
+			map[string]any{"title": "A"},
+			map[string]any{"title": "B"},
+		},
+	}
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", payload)}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind: driven.DecisionAccept,
+			PerItem: []driven.ItemDecision{
+				{Kind: driven.ItemNo},
+				{Kind: driven.ItemNo},
+			},
+		}},
+	}
+	d := newDialog()
+	d.apply = func(_ context.Context, _ map[string]any) (any, error) {
+		t.Fatalf("apply should not be called when no items are accepted")
+		return nil, nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if !errors.Is(err, ErrAIDialogAborted) {
+		t.Fatalf("expected ErrAIDialogAborted, got %v", err)
+	}
+}
+
+func TestRunDialog_MultiItemEditList(t *testing.T) {
+	original := map[string]any{
+		"items": []any{
+			map[string]any{"title": "original"},
+		},
+	}
+	edited := `{"items":[{"title":"edited-one"},{"title":"edited-two"}]}`
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", original)}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind:   driven.DecisionEditList,
+			Edited: edited,
+		}},
+	}
+	var applied map[string]any
+	d := newDialog()
+	d.apply = func(_ context.Context, p map[string]any) (any, error) {
+		applied = p
+		return "ok", nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	items, _ := applied["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items after edit, got %d", len(items))
+	}
+	acc, _ := applied["_accepted"].([]int)
+	if len(acc) != 2 || acc[0] != 0 || acc[1] != 1 {
+		t.Fatalf("_accepted after edit: got %v, want [0 1]", acc)
+	}
+}
+
+func TestRunDialog_MultiItemEditListBadJSON(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", map[string]any{"items": []any{}})}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind:   driven.DecisionEditList,
+			Edited: "not json",
+		}},
+	}
+	d := newDialog()
+	d.apply = func(_ context.Context, _ map[string]any) (any, error) {
+		t.Fatalf("apply should not be called on bad-JSON edit")
+		return nil, nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err == nil {
+		t.Fatalf("expected error on bad-JSON edit, got nil")
+	}
+	if !strings.Contains(err.Error(), "edited list is not valid JSON") {
+		t.Fatalf("expected 'edited list is not valid JSON' error, got %v", err)
+	}
+}
+
+func TestRunDialog_MultiItemEditListFailsValidation(t *testing.T) {
+	// Initial proposal is valid; the founder edits it into something
+	// that fails validation and the failure routes to stateFailed.
+	llm := &fakeLLM{
+		script: []scriptedTurn{{toolUse: submit("p1", map[string]any{
+			"items": []any{map[string]any{"title": "fine"}},
+		})}},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{
+			Kind:   driven.DecisionEditList,
+			Edited: `{"items":[{"title":""}]}`,
+		}},
+	}
+	d := newDialog()
+	d.validate = func(m map[string]any) error {
+		items, _ := m["items"].([]any)
+		if len(items) == 0 {
+			return fmt.Errorf("items must be non-empty")
+		}
+		first, _ := items[0].(map[string]any)
+		if first["title"] == "" {
+			return fmt.Errorf("title is required")
+		}
+		return nil
+	}
+	d.apply = func(_ context.Context, _ map[string]any) (any, error) {
+		t.Fatalf("apply should not be called on validation failure")
+		return nil, nil
+	}
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "edited list failed validation") {
+		t.Fatalf("expected 'edited list failed validation' error, got %v", err)
+	}
+}
