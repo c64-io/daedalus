@@ -103,6 +103,19 @@ func runDialog(
 		d.maxTokensPerTurn = 4096
 	}
 
+	// Anthropic's Messages API rejects a request with an empty messages
+	// array ("messages: at least one message is required"), even when
+	// a system prompt is present. The assistant turn always needs at
+	// least one user turn to respond to. If the caller hasn't pre-seeded
+	// a conversation, kick off with a short nudge that matches what the
+	// system prompt already tells the model to do: start the interview.
+	if len(d.messages) == 0 {
+		d.messages = append(d.messages, driven.Message{
+			Role: driven.RoleUser,
+			Text: "Let's get started. Please begin.",
+		})
+	}
+
 	status.Start(ctx, d.renderStatus(driven.PhaseIdle, ""))
 	defer status.Stop()
 
@@ -176,11 +189,15 @@ func (d *aiDialog) callLLM(ctx context.Context, llm driven.AIAssistant, status d
 }
 
 // classifyLLMError maps an AI sentinel error to the next state.
-// Auth and context-too-large are fail-fast; rate-limit / overloaded /
+// Auth, context-too-large, and invalid-request are fail-fast — retrying
+// them cannot possibly help and would only burn the backoff budget on
+// an error the caller needs to see *now*. Rate-limit, overloaded, and
 // network are retryable up to the backoff budget.
 func (d *aiDialog) classifyLLMError(err error) aiState {
 	switch {
-	case errors.Is(err, driven.ErrAIAuthFailed), errors.Is(err, driven.ErrAIContextTooLarge):
+	case errors.Is(err, driven.ErrAIAuthFailed),
+		errors.Is(err, driven.ErrAIContextTooLarge),
+		errors.Is(err, driven.ErrAIInvalidRequest):
 		d.lastError = err
 		return stateFailed
 	case errors.Is(err, driven.ErrAIRateLimited),

@@ -520,6 +520,35 @@ func TestRunDialog_ContextTooLargeFailsFast(t *testing.T) {
 	}
 }
 
+// Invalid-request (e.g. a 400 from a malformed payload) is the error
+// class that previously burned the backoff budget. It must fail fast
+// with a single call — no sleeps, no retries.
+func TestRunDialog_InvalidRequestFailsFast(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{
+			{err: driven.ErrAIInvalidRequest},
+			// Intentionally a second entry to prove we don't retry — if
+			// the loop wrongly retries, it would consume this and mask
+			// the bug.
+			{err: driven.ErrAIInvalidRequest},
+		},
+	}
+	inter := &fakeInter{}
+	clock := &fakeClock{}
+	d := newDialog()
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, clock)
+	if !errors.Is(err, driven.ErrAIInvalidRequest) {
+		t.Fatalf("expected ErrAIInvalidRequest, got %v", err)
+	}
+	if len(clock.sleeps) != 0 {
+		t.Fatalf("invalid-request should not backoff; got sleeps: %v", clock.sleeps)
+	}
+	if llm.idx != 1 {
+		t.Fatalf("expected exactly 1 LLM call, got %d", llm.idx)
+	}
+}
+
 // ---------------------------------------------------------------------
 // Interview budget
 // ---------------------------------------------------------------------
@@ -708,6 +737,72 @@ func TestRunDialog_EditedProposalFailsValidation(t *testing.T) {
 // ---------------------------------------------------------------------
 // Defaults
 // ---------------------------------------------------------------------
+
+// The first Chat() call must never be made with an empty messages
+// array — Anthropic's Messages API rejects that with 400
+// "messages: at least one message is required". runDialog seeds a
+// kickoff user message when the caller didn't pre-populate one.
+func TestRunDialog_SeedsKickoffWhenMessagesEmpty(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{
+			{toolUse: submit("p1", map[string]any{"title": "ok"})},
+		},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{Kind: driven.DecisionAccept}},
+	}
+	d := newDialog()
+	d.apply = func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	if len(llm.requests) == 0 {
+		t.Fatalf("expected at least one LLM request")
+	}
+	first := llm.requests[0]
+	if len(first.Messages) == 0 {
+		t.Fatalf("first Chat call had empty messages array; " +
+			"Anthropic would 400 this request")
+	}
+	if first.Messages[0].Role != driven.RoleUser {
+		t.Fatalf("kickoff message must be role=user, got %v", first.Messages[0].Role)
+	}
+	if strings.TrimSpace(first.Messages[0].Text) == "" {
+		t.Fatalf("kickoff message must have non-empty text")
+	}
+}
+
+// When the caller pre-seeds messages, the kickoff logic must not
+// clobber or duplicate them.
+func TestRunDialog_DoesNotOverrideSeededMessages(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{
+			{toolUse: submit("p1", map[string]any{"title": "ok"})},
+		},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{Kind: driven.DecisionAccept}},
+	}
+	d := newDialog()
+	d.messages = []driven.Message{
+		{Role: driven.RoleUser, Text: "caller seeded this"},
+	}
+	d.apply = func(_ context.Context, _ map[string]any) (any, error) { return nil, nil }
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	first := llm.requests[0]
+	if len(first.Messages) != 1 {
+		t.Fatalf("expected exactly the seeded message, got %d", len(first.Messages))
+	}
+	if first.Messages[0].Text != "caller seeded this" {
+		t.Fatalf("seeded message was clobbered: %q", first.Messages[0].Text)
+	}
+}
 
 func TestRunDialog_DefaultsMaxTokens(t *testing.T) {
 	llm := &fakeLLM{

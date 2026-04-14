@@ -263,6 +263,13 @@ func classifyError(err error) error {
 
 // classifyAPIError routes on HTTP status. See
 // https://docs.claude.com/en/api/errors for the full list.
+//
+// Retryable (network / overloaded / rate-limited) vs. fail-fast
+// (auth / invalid request / context too large) is the split that
+// matters to the state machine. Getting it wrong means the backoff
+// budget is burned on an error the caller can't recover from — which
+// is exactly what a 400 "messages array empty" would do if we called
+// it a network error.
 func classifyAPIError(apiErr *sdk.Error) error {
 	switch apiErr.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -279,17 +286,22 @@ func classifyAPIError(apiErr *sdk.Error) error {
 		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return fmt.Errorf("%w: %s", driven.ErrAIOverloaded, apiErr.Error())
 	case http.StatusBadRequest:
-		// 400 on Anthropic often means malformed request OR context
-		// window exceeded; peek at the body text for a hint.
+		// 400 on Anthropic means either "prompt is too long" (a
+		// recoverable-by-the-caller shape) or "invalid_request_error"
+		// (malformed payload — not retryable, ever). Sniff the body
+		// for the prompt-too-long phrase; everything else is a hard
+		// invalid-request error that must bypass the backoff loop.
 		if looksLikeContextTooLarge(apiErr) {
 			return fmt.Errorf("%w: %s", driven.ErrAIContextTooLarge, apiErr.Error())
 		}
-		return fmt.Errorf("%w: %s", driven.ErrAINetworkError, apiErr.Error())
+		return fmt.Errorf("%w: %s", driven.ErrAIInvalidRequest, apiErr.Error())
 	default:
-		// Treat other 4xx as fail-fast-ish; put them under network so
-		// the state machine can decide. Most callers will see them
-		// only via test stubs.
-		return fmt.Errorf("%w: %s", driven.ErrAINetworkError, apiErr.Error())
+		// Every other non-2xx we haven't enumerated (402 Payment
+		// Required, 404, 405, 418, etc.) is also not retryable — the
+		// request is wrong, not the transport. Route to
+		// ErrAIInvalidRequest so the state machine fails fast instead
+		// of burning its backoff budget.
+		return fmt.Errorf("%w: %s", driven.ErrAIInvalidRequest, apiErr.Error())
 	}
 }
 

@@ -100,12 +100,19 @@ type Usage struct {
 
 // AI sentinel errors. The dialog state machine switches on these to
 // decide between backoff, fail-fast, and malformed-response retry.
+//
+// Retry policy at a glance:
+//
+//   ErrAIAuthFailed, ErrAIContextTooLarge, ErrAIInvalidRequest — fail-fast
+//   ErrAIRateLimited, ErrAIOverloaded, ErrAINetworkError       — retry with backoff
+//   ErrAIMalformedResponse                                     — retry on malformed budget
 var (
 	ErrAIAuthFailed        = errors.New("ai: authentication failed")
 	ErrAIRateLimited       = errors.New("ai: rate limited")
 	ErrAIOverloaded        = errors.New("ai: provider overloaded")
 	ErrAINetworkError      = errors.New("ai: network error")
 	ErrAIContextTooLarge   = errors.New("ai: context too large")
+	ErrAIInvalidRequest    = errors.New("ai: invalid request")
 	ErrAIMalformedResponse = errors.New("ai: response did not match expected shape")
 )
 

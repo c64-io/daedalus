@@ -276,6 +276,27 @@ func TestChat_400PromptTooLongMapsToContextTooLarge(t *testing.T) {
 	}
 }
 
+// A 400 whose body doesn't match the prompt-too-long phrase (e.g.
+// "messages: at least one message is required") must NOT be classified
+// as a retryable network error — otherwise the state machine burns its
+// backoff budget on a request shape the caller cannot recover from.
+func TestChat_400InvalidRequestMapsToInvalidRequest(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"}}`))
+	}))
+	defer ts.Close()
+
+	c := newClientAgainst(t, ts)
+	_, err := c.Chat(context.Background(), driven.ChatRequest{Model: "x", MaxTokens: 1})
+	if !errors.Is(err, driven.ErrAIInvalidRequest) {
+		t.Fatalf("expected ErrAIInvalidRequest, got %v", err)
+	}
+	if errors.Is(err, driven.ErrAINetworkError) {
+		t.Fatalf("400 invalid_request must not be retryable (ErrAINetworkError)")
+	}
+}
+
 func TestChat_413MapsToContextTooLarge(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusRequestEntityTooLarge)
@@ -290,7 +311,11 @@ func TestChat_413MapsToContextTooLarge(t *testing.T) {
 	}
 }
 
-func TestChat_UnknownAPIErrorMapsToNetwork(t *testing.T) {
+// Other 4xx statuses (402 Payment Required, 404, 405, …) are likewise
+// non-retryable request-shape errors. Map them to ErrAIInvalidRequest
+// so the state machine fails fast rather than looping on a condition
+// the transport layer cannot fix.
+func TestChat_OtherNon2xxMapsToInvalidRequest(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPaymentRequired) // uncommon but valid HTTP
 		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"unknown","message":"weird"}}`))
@@ -299,8 +324,11 @@ func TestChat_UnknownAPIErrorMapsToNetwork(t *testing.T) {
 
 	c := newClientAgainst(t, ts)
 	_, err := c.Chat(context.Background(), driven.ChatRequest{Model: "x", MaxTokens: 1})
-	if !errors.Is(err, driven.ErrAINetworkError) {
-		t.Fatalf("expected ErrAINetworkError, got %v", err)
+	if !errors.Is(err, driven.ErrAIInvalidRequest) {
+		t.Fatalf("expected ErrAIInvalidRequest, got %v", err)
+	}
+	if errors.Is(err, driven.ErrAINetworkError) {
+		t.Fatalf("unknown 4xx must not be retryable (ErrAINetworkError)")
 	}
 }
 
