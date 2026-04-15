@@ -21,6 +21,7 @@ type scriptedTurn struct {
 	err      error
 	toolUse  *driven.ToolUseContent
 	rawText  string
+	stopReason string
 	usage    driven.Usage
 	retryAfter time.Duration // only meaningful when err is ErrAIRateLimited
 }
@@ -47,9 +48,10 @@ func (f *fakeLLM) Chat(_ context.Context, req driven.ChatRequest) (*driven.ChatR
 		return nil, t.err
 	}
 	return &driven.ChatResponse{
-		ToolUse: t.toolUse,
-		RawText: t.rawText,
-		Usage:   t.usage,
+		ToolUse:    t.toolUse,
+		RawText:    t.rawText,
+		StopReason: t.stopReason,
+		Usage:      t.usage,
 	}, nil
 }
 
@@ -409,6 +411,77 @@ func TestRunDialog_MalformedBudgetExhausted(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "valid tool call") {
 		t.Fatalf("expected malformed failure message, got %v", err)
+	}
+	// The exhausted error should carry a preview of the model's last
+	// response so the founder has something to go on.
+	if !strings.Contains(err.Error(), "text=nope again") {
+		t.Fatalf("expected final error to quote last raw text, got %v", err)
+	}
+}
+
+// When the model hits max_tokens, the retry reminder should say so
+// explicitly rather than the generic "you didn't call a tool" hint.
+func TestRunDialog_MalformedMaxTokensHint(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{
+			{rawText: "still thinking…", stopReason: "max_tokens"},
+			{toolUse: submit("p1", map[string]any{"title": "recovered"})},
+		},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{Kind: driven.DecisionAccept}},
+	}
+	d := newDialog()
+	d.malformedBudget = 2
+	d.apply = func(_ context.Context, p map[string]any) (any, error) { return p["title"], nil }
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	// The retry turn (request index 1) must include a max_tokens-specific
+	// reminder — not the generic "call a tool" one.
+	req2 := llm.requests[1]
+	found := false
+	for _, m := range req2.Messages {
+		if strings.Contains(m.Text, "stop_reason: max_tokens") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected max_tokens-specific retry hint")
+	}
+}
+
+// When a malformed turn carries text, the assistant turn must be
+// recorded in history so the model sees what it said when it retries.
+func TestRunDialog_MalformedLogsAssistantText(t *testing.T) {
+	llm := &fakeLLM{
+		script: []scriptedTurn{
+			{rawText: "I'm going to think out loud"},
+			{toolUse: submit("p1", map[string]any{"title": "recovered"})},
+		},
+	}
+	inter := &fakeInter{
+		decisions: []driven.Decision{{Kind: driven.DecisionAccept}},
+	}
+	d := newDialog()
+	d.malformedBudget = 2
+	d.apply = func(_ context.Context, p map[string]any) (any, error) { return p["title"], nil }
+
+	_, err := runDialog(context.Background(), d, llm, inter, nullStatus{}, &fakeClock{})
+	if err != nil {
+		t.Fatalf("runDialog: %v", err)
+	}
+	req2 := llm.requests[1]
+	foundAssistant := false
+	for _, m := range req2.Messages {
+		if m.Role == driven.RoleAssistant && strings.Contains(m.Text, "think out loud") {
+			foundAssistant = true
+		}
+	}
+	if !foundAssistant {
+		t.Fatalf("expected the malformed assistant turn to be recorded in history")
 	}
 }
 

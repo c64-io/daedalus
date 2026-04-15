@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/c64-io/daedalus/internal/core/port/driven"
@@ -224,6 +225,16 @@ func (d *aiDialog) classifyLLMError(err error) aiState {
 // inspectResponse routes on which tool the LLM called.
 func (d *aiDialog) inspectResponse() aiState {
 	if d.lastResponse == nil || d.lastResponse.ToolUse == nil {
+		// Record whatever the model said (even if just text) so the
+		// retry turn has real history to correct from. Without this,
+		// the model never sees its own previous reply and the retry
+		// prompt lands without context.
+		if d.lastResponse != nil && d.lastResponse.RawText != "" {
+			d.messages = append(d.messages, driven.Message{
+				Role: driven.RoleAssistant,
+				Text: d.lastResponse.RawText,
+			})
+		}
 		return d.bumpMalformed()
 	}
 	switch d.lastResponse.ToolUse.Name {
@@ -233,6 +244,12 @@ func (d *aiDialog) inspectResponse() aiState {
 		d.lastPayload = d.lastResponse.ToolUse.Input
 		return stateValidateProposal
 	default:
+		// Unknown tool — also record the attempted call so the model
+		// sees what it did wrong.
+		d.messages = append(d.messages, driven.Message{
+			Role:    driven.RoleAssistant,
+			ToolUse: d.lastResponse.ToolUse,
+		})
 		return d.bumpMalformed()
 	}
 }
@@ -448,30 +465,97 @@ func (d *aiDialog) backoff(ctx context.Context, clock driven.Clock, status drive
 	return stateCallLLM
 }
 
-// retryMalformed appends a reminder to the conversation and loops
-// back to stateCallLLM.
+// retryMalformed appends a diagnostic reminder to the conversation
+// and loops back to stateCallLLM. The reminder names the specific
+// failure mode (text-only, unknown tool, empty response, validator
+// error) so the model can course-correct rather than guess at what
+// went wrong.
 func (d *aiDialog) retryMalformed() aiState {
 	d.messages = append(d.messages, driven.Message{
 		Role: driven.RoleUser,
-		Text: "Your previous response didn't call ask_question or submit_proposal. " +
-			"Please call exactly one of those tools on your next turn.",
+		Text: d.malformedRetryHint(),
 	})
 	return stateCallLLM
 }
 
+// malformedRetryHint composes a user-role reminder describing what
+// went wrong on the previous turn and how to fix it. It is intentionally
+// specific — a generic "please call a tool" reminder has nothing to
+// latch onto when the model is already confused.
+func (d *aiDialog) malformedRetryHint() string {
+	base := "Your previous response could not be processed. Please call exactly one of the tools available to you (ask_question or submit_proposal) on your next turn."
+	if d.lastResponse == nil {
+		return base
+	}
+	if d.lastResponse.StopReason == "max_tokens" {
+		return "Your previous response was cut off before you finished (stop_reason: max_tokens). Keep your next turn concise and call exactly one tool — ask_question or submit_proposal."
+	}
+	switch {
+	case d.lastResponse.ToolUse != nil &&
+		d.lastResponse.ToolUse.Name != driven.ToolAskQuestion &&
+		d.lastResponse.ToolUse.Name != driven.ToolSubmitProposal:
+		return fmt.Sprintf("You called tool %q, which is not available. Please call ask_question or submit_proposal instead.", d.lastResponse.ToolUse.Name)
+	case d.lastResponse.RawText != "":
+		return "You replied with plain text instead of calling a tool. The founder never sees plain text from you — it is discarded. Please call ask_question or submit_proposal on your next turn."
+	case d.lastResponse.ToolUse == nil:
+		return "Your previous turn returned no usable content. Please call ask_question or submit_proposal on your next turn."
+	}
+	// Validator error path — lastPayload was structurally a tool call
+	// but failed schema validation. Surface the reason so the model
+	// can fix the payload, not re-argue its shape.
+	if d.lastError != nil {
+		return "Your previous proposal did not validate: " + d.lastError.Error() + ". Please call submit_proposal again with a corrected payload."
+	}
+	return base
+}
+
 // bumpMalformed decrements the malformed budget and either routes to
-// stateRetryMalformed or fails the dialog.
+// stateRetryMalformed or fails the dialog. On exhaustion we decorate
+// the error with stop_reason and a preview of what the model actually
+// said, so the founder doesn't see a mystery.
 func (d *aiDialog) bumpMalformed() aiState {
 	if d.malformedBudget <= 0 {
-		if d.lastError == nil {
-			d.lastError = errors.New("ai: model failed to produce a valid tool call after multiple attempts")
-		} else {
-			d.lastError = fmt.Errorf("ai: model failed to produce a valid tool call after multiple attempts: %w", d.lastError)
-		}
+		d.lastError = d.malformedExhaustedError()
 		return stateFailed
 	}
 	d.malformedBudget--
 	return stateRetryMalformed
+}
+
+// malformedExhaustedError builds a diagnostic error for the caller.
+// It quotes up to a short prefix of the model's raw text and names
+// the stop_reason when known — "model failed to produce a valid
+// tool call after multiple attempts" alone is a whodunnit.
+func (d *aiDialog) malformedExhaustedError() error {
+	var parts []string
+	parts = append(parts, "ai: model failed to produce a valid tool call after multiple attempts")
+	if d.lastResponse != nil {
+		if d.lastResponse.StopReason != "" {
+			parts = append(parts, "stop_reason="+d.lastResponse.StopReason)
+		}
+		if d.lastResponse.RawText != "" {
+			parts = append(parts, "text="+truncate(d.lastResponse.RawText, 200))
+		}
+		if d.lastResponse.ToolUse != nil {
+			parts = append(parts, "tool="+d.lastResponse.ToolUse.Name)
+		}
+	}
+	joined := strings.Join(parts, " · ")
+	if d.lastError != nil {
+		return fmt.Errorf("%s: %w", joined, d.lastError)
+	}
+	return errors.New(joined)
+}
+
+// truncate returns s trimmed to at most n characters, with a trailing
+// ellipsis when trimmed. Newlines are collapsed to single spaces so a
+// multi-paragraph model response doesn't blow up the error on one line.
+func truncate(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func (d *aiDialog) renderStatus(phase driven.Phase, extra string) driven.Status {
