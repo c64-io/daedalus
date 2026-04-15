@@ -143,6 +143,13 @@ func (s *SuggestService) SuggestEpics(ctx context.Context, req driving.SuggestEp
 	if err != nil {
 		return nil, fmt.Errorf("get idea: %w", err)
 	}
+	// Pre-flight: the state-machine gate that applySuggestEpics would
+	// hit per-item at the end of the dialog. Running the gate here
+	// fails fast before the founder invests in an interview whose
+	// output can't be applied.
+	if !minIdeaStatusForEpic[idea.Status] {
+		return nil, fmt.Errorf("%w: %s is %s", ErrIdeaNotReady, idea.ID, idea.Status)
+	}
 	var dc domain.DialogContext
 	if err := s.attachCommonContext(ctx, ws.DBDir, idea.ID, &dc); err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
@@ -185,6 +192,11 @@ func (s *SuggestService) SuggestFeatures(ctx context.Context, req driving.Sugges
 	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, req.EpicID)
 	if err != nil {
 		return nil, fmt.Errorf("get epic: %w", err)
+	}
+	// Pre-flight: fail fast if the parent epic isn't ready to spawn
+	// features — see the SuggestEpics comment for the rationale.
+	if !minEpicStatusForFeature[epic.Status] {
+		return nil, fmt.Errorf("%w: %s is %s", ErrEpicNotReady, epic.ID, epic.Status)
 	}
 	idea, err := s.ideaRepo.GetIdea(ctx, ws.DBDir, epic.IdeaID)
 	if err != nil {
@@ -233,6 +245,11 @@ func (s *SuggestService) SuggestStories(ctx context.Context, req driving.Suggest
 	feat, err := s.featRepo.GetFeature(ctx, ws.DBDir, req.FeatureID)
 	if err != nil {
 		return nil, fmt.Errorf("get feature: %w", err)
+	}
+	// Pre-flight: fail fast if the parent feature isn't ready to spawn
+	// stories — see the SuggestEpics comment for the rationale.
+	if !minFeatureStatusForStory[feat.Status] {
+		return nil, fmt.Errorf("%w: %s is %s", ErrFeatureNotReady, feat.ID, feat.Status)
 	}
 	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, feat.EpicID)
 	if err != nil {
@@ -288,6 +305,11 @@ func (s *SuggestService) SuggestSpecs(ctx context.Context, req driving.SuggestSp
 	story, err := s.storyRepo.GetStory(ctx, ws.DBDir, req.StoryID)
 	if err != nil {
 		return nil, fmt.Errorf("get story: %w", err)
+	}
+	// Pre-flight: fail fast if the parent story isn't ready to spawn
+	// specs — see the SuggestEpics comment for the rationale.
+	if !minStoryStatusForSpec[story.Status] {
+		return nil, fmt.Errorf("%w: %s is %s", ErrStoryNotReady, story.ID, story.Status)
 	}
 	feat, err := s.featRepo.GetFeature(ctx, ws.DBDir, story.FeatureID)
 	if err != nil {
@@ -349,6 +371,11 @@ func (s *SuggestService) SuggestScenarios(ctx context.Context, req driving.Sugge
 	spec, err := s.specRepo.GetSpec(ctx, ws.DBDir, req.SpecID)
 	if err != nil {
 		return nil, fmt.Errorf("get spec: %w", err)
+	}
+	// Pre-flight: fail fast if the parent spec isn't ready to spawn
+	// scenarios — see the SuggestEpics comment for the rationale.
+	if !minSpecStatusForScenario[spec.Status] {
+		return nil, fmt.Errorf("%w: %s is %s", ErrSpecNotReady, spec.ID, spec.Status)
 	}
 	story, err := s.storyRepo.GetStory(ctx, ws.DBDir, spec.StoryID)
 	if err != nil {

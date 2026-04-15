@@ -643,3 +643,129 @@ func TestSuggestEpics_EditListReplacesItems(t *testing.T) {
 			f.epicCreator.reqs[0].Title, f.epicCreator.reqs[1].Title)
 	}
 }
+
+// ---------------------------------------------------------------------
+// Pre-flight parent-status checks — every SuggestX command must fail
+// fast when the parent entity isn't at least `refined`, before the
+// dialog starts, so the founder doesn't sit through a full interview
+// only to hit the state-machine at apply time. Each test sets the
+// direct parent to `draft` and asserts:
+//   1. the command errors with the expected *NotReady sentinel,
+//   2. zero LLM turns were issued, and
+//   3. zero Creator calls were made.
+// ---------------------------------------------------------------------
+
+func TestSuggestEpics_ParentIdeaDraft_FailsFastBeforeDialog(t *testing.T) {
+	t.Parallel()
+	f := newSuggestFixture(t, nil, nil, nil)
+	f.ideaRepo.ideas[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestEpics(context.Background(), driving.SuggestEpicsRequest{IdeaID: "IDEA-001"})
+	if !errors.Is(err, service.ErrIdeaNotReady) {
+		t.Fatalf("expected ErrIdeaNotReady, got %v", err)
+	}
+	if len(f.llm.requests) != 0 {
+		t.Errorf("pre-flight should short-circuit before LLM; got %d requests", len(f.llm.requests))
+	}
+	if len(f.epicCreator.reqs) != 0 {
+		t.Errorf("no epics should be created on pre-flight failure; got %d", len(f.epicCreator.reqs))
+	}
+}
+
+func TestSuggestFeatures_ParentEpicDraft_FailsFastBeforeDialog(t *testing.T) {
+	t.Parallel()
+	f := newSuggestFixture(t, nil, nil, nil)
+	f.epicRepo.epics[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestFeatures(context.Background(), driving.SuggestFeaturesRequest{EpicID: "EPIC-001"})
+	if !errors.Is(err, service.ErrEpicNotReady) {
+		t.Fatalf("expected ErrEpicNotReady, got %v", err)
+	}
+	if len(f.llm.requests) != 0 {
+		t.Errorf("pre-flight should short-circuit before LLM; got %d requests", len(f.llm.requests))
+	}
+	if len(f.featureCreator.reqs) != 0 {
+		t.Errorf("no features should be created on pre-flight failure; got %d", len(f.featureCreator.reqs))
+	}
+}
+
+func TestSuggestStories_ParentFeatureDraft_FailsFastBeforeDialog(t *testing.T) {
+	t.Parallel()
+	f := newSuggestFixture(t, nil, nil, nil)
+	f.featRepo.features[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestStories(context.Background(), driving.SuggestStoriesRequest{FeatureID: "FEAT-001"})
+	if !errors.Is(err, service.ErrFeatureNotReady) {
+		t.Fatalf("expected ErrFeatureNotReady, got %v", err)
+	}
+	if len(f.llm.requests) != 0 {
+		t.Errorf("pre-flight should short-circuit before LLM; got %d requests", len(f.llm.requests))
+	}
+	if len(f.storyCreator.reqs) != 0 {
+		t.Errorf("no stories should be created on pre-flight failure; got %d", len(f.storyCreator.reqs))
+	}
+}
+
+func TestSuggestSpecs_ParentStoryDraft_FailsFastBeforeDialog(t *testing.T) {
+	t.Parallel()
+	f := newSuggestFixture(t, nil, nil, nil)
+	f.storyRepo.stories[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestSpecs(context.Background(), driving.SuggestSpecsRequest{StoryID: "STORY-001"})
+	if !errors.Is(err, service.ErrStoryNotReady) {
+		t.Fatalf("expected ErrStoryNotReady, got %v", err)
+	}
+	if len(f.llm.requests) != 0 {
+		t.Errorf("pre-flight should short-circuit before LLM; got %d requests", len(f.llm.requests))
+	}
+	if len(f.specCreator.reqs) != 0 {
+		t.Errorf("no specs should be created on pre-flight failure; got %d", len(f.specCreator.reqs))
+	}
+}
+
+func TestSuggestScenarios_ParentSpecDraft_FailsFastBeforeDialog(t *testing.T) {
+	t.Parallel()
+	f := newSuggestFixture(t, nil, nil, nil)
+	f.specRepo.specs[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestScenarios(context.Background(), driving.SuggestScenariosRequest{SpecID: "SPEC-001"})
+	if !errors.Is(err, service.ErrSpecNotReady) {
+		t.Fatalf("expected ErrSpecNotReady, got %v", err)
+	}
+	if len(f.llm.requests) != 0 {
+		t.Errorf("pre-flight should short-circuit before LLM; got %d requests", len(f.llm.requests))
+	}
+	if len(f.scenarioCreator.reqs) != 0 {
+		t.Errorf("no scenarios should be created on pre-flight failure; got %d", len(f.scenarioCreator.reqs))
+	}
+}
+
+// Non-ready intermediate-ancestor statuses do not block the command —
+// only the *direct* parent gates child creation. If, for example, a
+// Feature's grandparent Idea were archived, the dialog should still
+// run (the Feature is refined, the Story is being created under the
+// Feature, not under the Idea). This test locks in that behavior so
+// a future "walk the whole chain" mistake is caught.
+func TestSuggestStories_OnlyDirectParentGates_NotAncestors(t *testing.T) {
+	t.Parallel()
+	items := []map[string]any{
+		{"title": "Enter code", "description": "Shopper enters a code at checkout."},
+	}
+	f := newSuggestFixture(t,
+		[]expScriptedTurn{{toolUse: submitMulti(items)}},
+		nil,
+		[]driven.Decision{acceptAll(1)},
+	)
+	// Grandparent (Idea) and great-grandparent don't gate — only the
+	// direct parent (Feature) does. Push the Idea to draft; the dialog
+	// should still run because FEAT-001 is still refined.
+	f.ideaRepo.ideas[0].Status = domain.StatusDraft
+
+	_, err := f.svc.SuggestStories(context.Background(), driving.SuggestStoriesRequest{FeatureID: "FEAT-001"})
+	if err != nil {
+		t.Fatalf("SuggestStories should succeed with only ancestor in draft: %v", err)
+	}
+	if len(f.storyCreator.reqs) != 1 {
+		t.Errorf("expected 1 CreateStory call; got %d", len(f.storyCreator.reqs))
+	}
+}
