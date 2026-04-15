@@ -34,11 +34,13 @@ import (
 
 // Interactor is the stdin/stdout implementation. It carries a driven
 // Editor so the "edit" review path can reuse the same $EDITOR helper
-// every other d7 command uses.
+// every other d7 command uses. The styler colorizes headers and
+// labels when out is an interactive terminal.
 type Interactor struct {
 	in     *bufio.Reader
 	out    io.Writer
 	editor driven.Editor
+	s      styler
 }
 
 // Compile-time assertion.
@@ -51,11 +53,13 @@ func New(editor driven.Editor) *Interactor {
 }
 
 // NewWithIO is the test constructor — pass any Reader/Writer pair.
+// Color is auto-disabled when out is not a character device.
 func NewWithIO(in io.Reader, out io.Writer, editor driven.Editor) *Interactor {
 	return &Interactor{
 		in:     bufio.NewReader(in),
 		out:    out,
 		editor: editor,
+		s:      newStyler(out),
 	}
 }
 
@@ -63,19 +67,24 @@ func NewWithIO(in io.Reader, out io.Writer, editor driven.Editor) *Interactor {
 // `/done` and `/quit` are sentinels that translate into
 // AnswerForcePropose / AnswerAbort respectively.
 func (i *Interactor) Ask(ctx context.Context, q driven.Question) (driven.Answer, error) {
-	// A short banner so the model's question visually separates from
-	// whatever the status renderer was printing above it.
+	// Two blank lines plus a colored header give each question
+	// enough vertical breathing room that sequential Q&A doesn't
+	// visually blur. The header is bold+cyan so a quick glance
+	// down the scrollback immediately spots each new turn.
 	fmt.Fprintln(i.out)
+	fmt.Fprintln(i.out)
+	var badge string
 	if q.TurnsMax > 0 {
-		fmt.Fprintf(i.out, "(Q %d/%d) %s\n", q.TurnsUsed, q.TurnsMax, q.Text)
+		badge = fmt.Sprintf("(Q %d/%d)", q.TurnsUsed, q.TurnsMax)
 	} else {
-		fmt.Fprintf(i.out, "Q: %s\n", q.Text)
+		badge = "Q:"
 	}
+	fmt.Fprintf(i.out, "%s %s\n", i.s.boldCyan(badge), i.s.bold(q.Text))
 	if q.Why != "" {
-		fmt.Fprintf(i.out, "    why: %s\n", q.Why)
+		fmt.Fprintf(i.out, "    %s\n", i.s.dim("why: "+q.Why))
 	}
-	fmt.Fprintf(i.out, "    (type `/done` to have the AI propose now, `/quit` to cancel)\n")
-	fmt.Fprint(i.out, "> ")
+	fmt.Fprintf(i.out, "    %s\n", i.s.dim("(type `/done` to have the AI propose now, `/quit` to cancel)"))
+	fmt.Fprintf(i.out, "%s ", i.s.boldGreen(">"))
 
 	line, err := i.readLine(ctx)
 	if err != nil {
@@ -113,15 +122,19 @@ func (i *Interactor) Review(ctx context.Context, p driven.Proposal) (driven.Deci
 // critique/edit.
 func (i *Interactor) reviewSingle(ctx context.Context, p driven.Proposal) (driven.Decision, error) {
 	fmt.Fprintln(i.out)
+	fmt.Fprintln(i.out)
 	if p.Single.Title != "" {
-		fmt.Fprintf(i.out, "── %s ──\n", p.Single.Title)
+		fmt.Fprintln(i.out, i.s.boldMagenta(fmt.Sprintf("── %s ──", p.Single.Title)))
 	}
 	fmt.Fprintln(i.out, p.Single.Body)
 	fmt.Fprintln(i.out)
-	fmt.Fprintln(i.out, "Accept this proposal? [a]ccept / [c]ritique / [e]dit / [q]uit")
+	fmt.Fprintf(i.out, "%s %s\n",
+		i.s.bold("Accept this proposal?"),
+		i.s.dim("[")+i.s.yellow("a")+i.s.dim("]ccept / [")+i.s.yellow("c")+i.s.dim("]ritique / [")+i.s.yellow("e")+i.s.dim("]dit / [")+i.s.yellow("q")+i.s.dim("]uit"),
+	)
 
 	for {
-		fmt.Fprint(i.out, "> ")
+		fmt.Fprintf(i.out, "%s ", i.s.boldGreen(">"))
 		line, err := i.readLine(ctx)
 		if err != nil {
 			return driven.Decision{}, err
@@ -182,24 +195,33 @@ func (i *Interactor) reviewMultiple(ctx context.Context, p driven.Proposal) (dri
 	}
 
 	fmt.Fprintln(i.out)
-	fmt.Fprintf(i.out, "The AI has proposed %d item%s:\n", n, plural(n))
+	fmt.Fprintln(i.out)
+	fmt.Fprintln(i.out, i.s.bold(fmt.Sprintf("The AI has proposed %d item%s:", n, plural(n))))
 	for idx, it := range p.Multiple {
 		fmt.Fprintln(i.out)
 		title := it.Title
 		if title == "" {
 			title = fmt.Sprintf("Item %d", idx+1)
 		}
-		fmt.Fprintf(i.out, "── [%d] %s ──\n", idx+1, title)
+		rule := fmt.Sprintf("── [%d] %s ──", idx+1, title)
+		fmt.Fprintln(i.out, i.s.boldMagenta(rule))
 		if it.Body != "" {
 			fmt.Fprintln(i.out, it.Body)
 		}
 	}
 	fmt.Fprintln(i.out)
-	fmt.Fprintln(i.out, "Which items would you like to accept?")
-	fmt.Fprintln(i.out, "  [a]ll  [n]one  [1,3,5] subset  [c]ritique  [e]dit list  [q]uit")
+	fmt.Fprintln(i.out, i.s.bold("Which items would you like to accept?"))
+	fmt.Fprintf(i.out, "  %s  %s  %s  %s  %s  %s\n",
+		i.s.dim("[")+i.s.yellow("a")+i.s.dim("]ll"),
+		i.s.dim("[")+i.s.yellow("n")+i.s.dim("]one"),
+		i.s.dim("[")+i.s.yellow("1,3,5")+i.s.dim("] subset"),
+		i.s.dim("[")+i.s.yellow("c")+i.s.dim("]ritique"),
+		i.s.dim("[")+i.s.yellow("e")+i.s.dim("]dit list"),
+		i.s.dim("[")+i.s.yellow("q")+i.s.dim("]uit"),
+	)
 
 	for {
-		fmt.Fprint(i.out, "> ")
+		fmt.Fprintf(i.out, "%s ", i.s.boldGreen(">"))
 		line, err := i.readLine(ctx)
 		if err != nil {
 			return driven.Decision{}, err
@@ -337,7 +359,9 @@ func decisionAcceptSubset(n int, picks []int) driven.Decision {
 // readCritique gathers multi-line feedback. The founder ends the
 // critique by entering a line that is just "." on its own.
 func (i *Interactor) readCritique(ctx context.Context) (string, error) {
-	fmt.Fprintln(i.out, "Your feedback (end with a single `.` on its own line):")
+	fmt.Fprintf(i.out, "%s %s\n",
+		i.s.bold("Your feedback"),
+		i.s.dim("(end with a single `.` on its own line):"))
 	var b strings.Builder
 	for {
 		line, err := i.readLine(ctx)
