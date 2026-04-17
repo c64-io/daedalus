@@ -23,12 +23,13 @@ func TestFormatDialogContext_MinimalIdea(t *testing.T) {
 
 	mustContain(t, got, "# Product")
 	mustContain(t, got, "A coupon system for small online shops.")
-	mustContain(t, got, "# What we're working on")
-	mustContain(t, got, `Idea IDEA-001 — "Coupon system"  (draft)`)
+	mustContain(t, got, "# Hierarchy")
+	mustContain(t, got, "[target]")
+	mustContain(t, got, `Idea IDEA-001 — "Coupon system" (draft)`)
 	mustContain(t, got, "We want shoppers to be able to redeem coupons at checkout.")
 
-	if strings.Contains(got, "# Context from the parent tree") {
-		t.Fatalf("no ancestors should not render an ancestor section; got:\n%s", got)
+	if strings.Contains(got, "[context]") {
+		t.Fatalf("no ancestors should not produce [context] nodes; got:\n%s", got)
 	}
 	if strings.Contains(got, "# Related work") {
 		t.Fatalf("no links should not render a links section; got:\n%s", got)
@@ -67,15 +68,13 @@ func TestFormatDialogContext_StoryWithFullAncestorChain(t *testing.T) {
 
 	got := domain.FormatDialogContext(c)
 
-	mustContain(t, got, "# Context from the parent tree")
-	mustContain(t, got, `Idea IDEA-001 — "Coupons"`)
-	mustContain(t, got, `Epic EPIC-003 — "Redemption"`)
-	mustContain(t, got, "priority: high  size: 8")
-	mustContain(t, got, `Feature FEAT-007 — "Checkout redemption"`)
+	mustContain(t, got, "# Hierarchy")
 
-	mustContain(t, got, "# What we're working on")
-	mustContain(t, got, `Story STORY-042 — "User redeems a valid coupon"  (draft)`)
-	mustContain(t, got, "priority: high  size: 5")
+	// Ancestors are labeled [context]; the target is [target].
+	mustContain(t, got, `[context] **Idea IDEA-001 — "Coupons" (refined)`)
+	mustContain(t, got, `[context] **Epic EPIC-003 — "Redemption" (refined) · priority: high · size: 8`)
+	mustContain(t, got, `[context] **Feature FEAT-007 — "Checkout redemption" (refined)`)
+	mustContain(t, got, `[target] **Story STORY-042 — "User redeems a valid coupon" (draft) · priority: high · size: 5`)
 	mustContain(t, got, "Rough wording: user enters code, gets discount.")
 
 	mustContain(t, got, "# Related work")
@@ -141,7 +140,7 @@ func TestFormatDialogContext_MultilineDescriptionIndented(t *testing.T) {
 		},
 	}
 	got := domain.FormatDialogContext(c)
-	mustContain(t, got, "    first line\n    second line\n    third line")
+	mustContain(t, got, "  first line\n  second line\n  third line")
 }
 
 func mustContain(t *testing.T, s, sub string) {

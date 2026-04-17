@@ -72,6 +72,10 @@ type DialogContextRef struct {
 // FormatDialogContext renders a DialogContext as the stable text
 // block handed to the LLM as cached context. The output is
 // deterministic for a given input — same struct in, same bytes out.
+//
+// The hierarchy section uses nested markdown lists so the parent-child
+// chain is structurally visible. Each node is labeled [context] (read-
+// only ancestors) or [target] (the entity the command operates on).
 func FormatDialogContext(c DialogContext) string {
 	var b strings.Builder
 
@@ -84,19 +88,13 @@ func FormatDialogContext(c DialogContext) string {
 		b.WriteString("\n")
 	})
 
-	if len(c.Ancestors) > 0 {
-		writeContextSection(&b, "Context from the parent tree", func() {
-			for i, a := range c.Ancestors {
-				if i > 0 {
-					b.WriteString("\n")
-				}
-				writeContextEntity(&b, a)
-			}
-		})
-	}
-
-	writeContextSection(&b, "What we're working on", func() {
-		writeContextEntity(&b, c.Target)
+	writeContextSection(&b, "Hierarchy", func() {
+		depth := 0
+		for _, a := range c.Ancestors {
+			writeNestedEntity(&b, depth, "context", a)
+			depth++
+		}
+		writeNestedEntity(&b, depth, "target", c.Target)
 	})
 
 	if len(c.Links) > 0 {
@@ -134,9 +132,15 @@ func writeContextSection(b *strings.Builder, title string, body func()) {
 	body()
 }
 
-func writeContextEntity(b *strings.Builder, e DialogContextEntity) {
-	fmt.Fprintf(b, "%s %s — %q  (%s)\n", e.Kind, e.ID, e.Title, e.Status)
+// writeNestedEntity renders one entity as a markdown list item at the
+// given nesting depth. Each depth level adds two spaces of indent so
+// children sit visually inside their parent. The role label is either
+// "context" (read-only ancestor) or "target" (the item to decompose).
+func writeNestedEntity(b *strings.Builder, depth int, role string, e DialogContextEntity) {
+	indent := strings.Repeat("  ", depth)
+	inner := indent + "  "
 
+	header := fmt.Sprintf("%s %s — %q (%s)", e.Kind, e.ID, e.Title, e.Status)
 	var meta []string
 	if e.Priority != "" {
 		meta = append(meta, fmt.Sprintf("priority: %s", e.Priority))
@@ -145,37 +149,39 @@ func writeContextEntity(b *strings.Builder, e DialogContextEntity) {
 		meta = append(meta, fmt.Sprintf("size: %s", e.Size))
 	}
 	if len(meta) > 0 {
-		fmt.Fprintf(b, "  %s\n", strings.Join(meta, "  "))
+		header += " · " + strings.Join(meta, " · ")
 	}
+	fmt.Fprintf(b, "%s- [%s] **%s**\n", indent, role, header)
 
 	if e.Description != "" {
-		b.WriteString("  Description:\n")
+		b.WriteString("\n")
 		for _, line := range strings.Split(strings.TrimRight(e.Description, "\n"), "\n") {
-			fmt.Fprintf(b, "    %s\n", line)
+			fmt.Fprintf(b, "%s%s\n", inner, line)
 		}
+		b.WriteString("\n")
 	}
 
 	if len(e.Tags) > 0 {
-		fmt.Fprintf(b, "  Tags: %s\n", strings.Join(e.Tags, ", "))
+		fmt.Fprintf(b, "%sTags: %s\n", inner, strings.Join(e.Tags, ", "))
 	}
 
 	if len(e.Given) > 0 || len(e.When) > 0 || len(e.Then) > 0 {
 		if len(e.Given) > 0 {
-			b.WriteString("  Given:\n")
+			fmt.Fprintf(b, "%sGiven:\n", inner)
 			for _, s := range e.Given {
-				fmt.Fprintf(b, "    - %s\n", s)
+				fmt.Fprintf(b, "%s  - %s\n", inner, s)
 			}
 		}
 		if len(e.When) > 0 {
-			b.WriteString("  When:\n")
+			fmt.Fprintf(b, "%sWhen:\n", inner)
 			for _, s := range e.When {
-				fmt.Fprintf(b, "    - %s\n", s)
+				fmt.Fprintf(b, "%s  - %s\n", inner, s)
 			}
 		}
 		if len(e.Then) > 0 {
-			b.WriteString("  Then:\n")
+			fmt.Fprintf(b, "%sThen:\n", inner)
 			for _, s := range e.Then {
-				fmt.Fprintf(b, "    - %s\n", s)
+				fmt.Fprintf(b, "%s  - %s\n", inner, s)
 			}
 		}
 	}
