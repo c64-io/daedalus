@@ -12,9 +12,8 @@ import (
 	"github.com/c64-io/daedalus/internal/core/port/driving"
 )
 
-// Shared helpers (attachCommonContext, resolveDialogLink, the
-// ToContextEntity converters, sizeString) live in ai_context.go so
-// SuggestService can reuse them.
+// Shared helpers (ToContextEntity converters, sizeString, loadWorkspace,
+// loadTargetRefs) live in ai_context.go so SuggestService can reuse them.
 
 // Sentinel errors shared by every expand-* command.
 var (
@@ -44,17 +43,22 @@ var (
 
 // ExpandService wires the AI-assisted expansion use cases for all four
 // planning-hierarchy entities (Idea, Epic, Feature, Story). Each
-// ExpandX method walks that entity's parent chain into a DialogContext,
-// runs the interview-first AI dialog via runDialog, and on acceptance
+// ExpandX method builds a minimal DialogContext (workspace + target),
+// constructs a NavToolsHandler for on-demand graph exploration, and
+// runs the interview-first AI dialog via runDialog. On acceptance it
 // updates the entity's Description field.
 type ExpandService struct {
-	contextSource // embedded: attachCommonContext, resolveDialogLink
-
 	fs        driven.FileSystem
+	wsRepo    driven.WorkspaceRepository
 	ideaRepo  driven.IdeaRepository
 	epicRepo  driven.EpicRepository
 	featRepo  driven.FeatureRepository
 	storyRepo driven.StoryRepository
+	specRepo  driven.SpecRepository
+	scenRepo  driven.ScenarioRepository
+	linkRepo  driven.LinkRepository
+	refRepo   driven.RefRepository
+	resolver  driven.EntityResolver
 	history   driven.HistoryRepository
 
 	llm    driven.AIAssistant
@@ -64,8 +68,7 @@ type ExpandService struct {
 }
 
 // NewExpandService wires the expand service with all of its driven
-// dependencies. Every dependency is a port; the service holds no
-// concrete types.
+// dependencies.
 func NewExpandService(
 	fs driven.FileSystem,
 	wsRepo driven.WorkspaceRepository,
@@ -73,6 +76,8 @@ func NewExpandService(
 	epicRepo driven.EpicRepository,
 	featRepo driven.FeatureRepository,
 	storyRepo driven.StoryRepository,
+	specRepo driven.SpecRepository,
+	scenRepo driven.ScenarioRepository,
 	linkRepo driven.LinkRepository,
 	refRepo driven.RefRepository,
 	resolver driven.EntityResolver,
@@ -83,17 +88,17 @@ func NewExpandService(
 	clock driven.Clock,
 ) *ExpandService {
 	return &ExpandService{
-		contextSource: contextSource{
-			wsRepo:   wsRepo,
-			linkRepo: linkRepo,
-			refRepo:  refRepo,
-			resolver: resolver,
-		},
 		fs:        fs,
+		wsRepo:    wsRepo,
 		ideaRepo:  ideaRepo,
 		epicRepo:  epicRepo,
 		featRepo:  featRepo,
 		storyRepo: storyRepo,
+		specRepo:  specRepo,
+		scenRepo:  scenRepo,
+		linkRepo:  linkRepo,
+		refRepo:   refRepo,
+		resolver:  resolver,
 		history:   history,
 		llm:       llm,
 		inter:     inter,
@@ -119,7 +124,7 @@ func (s *ExpandService) ExpandIdea(ctx context.Context, req driving.ExpandIdeaRe
 	if err != nil {
 		return nil, fmt.Errorf("get idea: %w", err)
 	}
-	dc, err := s.buildIdeaContext(ctx, ws.DBDir, *idea)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, idea.ID, ideaToContextEntity(*idea))
 	if err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
@@ -130,6 +135,7 @@ func (s *ExpandService) ExpandIdea(ctx context.Context, req driving.ExpandIdeaRe
 		systemPrompt:      expandIdeaSystemPrompt,
 		submitDescription: expandIdeaSubmitDescription,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applyExpandIdea(ctx, ws.DBDir, idea.ID, payload)
 		},
@@ -157,7 +163,7 @@ func (s *ExpandService) ExpandEpic(ctx context.Context, req driving.ExpandEpicRe
 	if err != nil {
 		return nil, fmt.Errorf("get epic: %w", err)
 	}
-	dc, err := s.buildEpicContext(ctx, ws.DBDir, *epic)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, epic.ID, epicToContextEntity(*epic))
 	if err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
@@ -168,6 +174,7 @@ func (s *ExpandService) ExpandEpic(ctx context.Context, req driving.ExpandEpicRe
 		systemPrompt:      expandEpicSystemPrompt,
 		submitDescription: expandEpicSubmitDescription,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applyExpandEpic(ctx, ws.DBDir, epic.ID, payload)
 		},
@@ -195,7 +202,7 @@ func (s *ExpandService) ExpandFeature(ctx context.Context, req driving.ExpandFea
 	if err != nil {
 		return nil, fmt.Errorf("get feature: %w", err)
 	}
-	dc, err := s.buildFeatureContext(ctx, ws.DBDir, *feat)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, feat.ID, featureToContextEntity(*feat))
 	if err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
@@ -206,6 +213,7 @@ func (s *ExpandService) ExpandFeature(ctx context.Context, req driving.ExpandFea
 		systemPrompt:      expandFeatureSystemPrompt,
 		submitDescription: expandFeatureSubmitDescription,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applyExpandFeature(ctx, ws.DBDir, feat.ID, payload)
 		},
@@ -233,7 +241,7 @@ func (s *ExpandService) ExpandStory(ctx context.Context, req driving.ExpandStory
 	if err != nil {
 		return nil, fmt.Errorf("get story: %w", err)
 	}
-	dc, err := s.buildStoryContext(ctx, ws.DBDir, *story)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, story.ID, storyToContextEntity(*story))
 	if err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
@@ -244,6 +252,7 @@ func (s *ExpandService) ExpandStory(ctx context.Context, req driving.ExpandStory
 		systemPrompt:      expandStorySystemPrompt,
 		submitDescription: expandStorySubmitDescription,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applyExpandStory(ctx, ws.DBDir, story.ID, payload)
 		},
@@ -269,6 +278,7 @@ type runExpandParams struct {
 	systemPrompt      string
 	submitDescription string
 	dc                domain.DialogContext
+	dbDir             string
 	apply             func(ctx context.Context, payload map[string]any) (any, error)
 }
 
@@ -280,19 +290,37 @@ func (s *ExpandService) runExpand(ctx context.Context, p runExpandParams) (any, 
 	if model == "" {
 		model = defaultExpandModel
 	}
+
+	handler := &NavToolsHandler{
+		ideaRepo:  s.ideaRepo,
+		epicRepo:  s.epicRepo,
+		featRepo:  s.featRepo,
+		storyRepo: s.storyRepo,
+		specRepo:  s.specRepo,
+		scenRepo:  s.scenRepo,
+		linkRepo:  s.linkRepo,
+		refRepo:   s.refRepo,
+		resolver:  s.resolver,
+		dbDir:     p.dbDir,
+	}
+
+	tools := expandTools(p.submitDescription)
+	tools = append(tools, navToolDefs()...)
+
 	dlg := &aiDialog{
 		command:          p.command,
 		target:           p.target,
 		model:            model,
-		system:           p.systemPrompt,
+		system:           p.systemPrompt + navOrientationClause,
 		contextBlock:     domain.FormatDialogContext(p.dc),
-		tools:            expandTools(p.submitDescription),
+		tools:            tools,
 		maxTokensPerTurn: defaultExpandMaxTokens,
 		maxInterviews:    defaultExpandMaxInterviews,
 		malformedBudget:  defaultExpandMalformedBudget,
 		backoffBudget:    defaultExpandBackoffBudget,
 		backoffBase:      defaultExpandBackoffBase,
 
+		navHandler:     handler.Handle,
 		validate:       validateExpandPayload,
 		renderProposal: renderExpandProposal,
 		apply:          p.apply,
@@ -300,83 +328,23 @@ func (s *ExpandService) runExpand(ctx context.Context, p runExpandParams) (any, 
 	return runDialog(ctx, dlg, s.llm, s.inter, s.status, s.clock)
 }
 
-// ---------------------------------------------------------------------
-// Per-entity context builders.
-// ---------------------------------------------------------------------
-
-// buildIdeaContext has no ancestors — just the workspace description,
-// links, and refs touching the Idea.
-func (s *ExpandService) buildIdeaContext(ctx context.Context, dbDir string, idea domain.Idea) (domain.DialogContext, error) {
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, dbDir, idea.ID, &dc); err != nil {
-		return dc, err
-	}
-	dc.Target = ideaToContextEntity(idea)
-	return dc, nil
-}
-
-// buildEpicContext walks Epic → Idea.
-func (s *ExpandService) buildEpicContext(ctx context.Context, dbDir string, epic domain.Epic) (domain.DialogContext, error) {
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, dbDir, epic.ID, &dc); err != nil {
-		return dc, err
-	}
-	idea, err := s.ideaRepo.GetIdea(ctx, dbDir, epic.IdeaID)
+// buildTargetContext builds a DialogContext with just the workspace
+// description, the target entity, and its refs. Ancestors and links
+// are not included — the model explores them via navigation tools.
+func (s *ExpandService) buildTargetContext(ctx context.Context, dbDir, entityID string, target domain.DialogContextEntity) (domain.DialogContext, error) {
+	ws, err := loadWorkspace(ctx, s.wsRepo, dbDir)
 	if err != nil {
-		return dc, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
+		return domain.DialogContext{}, err
 	}
-	dc.Ancestors = []domain.DialogContextEntity{ideaToContextEntity(*idea)}
-	dc.Target = epicToContextEntity(epic)
-	return dc, nil
-}
-
-// buildFeatureContext walks Feature → Epic → Idea.
-func (s *ExpandService) buildFeatureContext(ctx context.Context, dbDir string, feat domain.Feature) (domain.DialogContext, error) {
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, dbDir, feat.ID, &dc); err != nil {
-		return dc, err
-	}
-	epic, err := s.epicRepo.GetEpic(ctx, dbDir, feat.EpicID)
+	refs, err := loadTargetRefs(ctx, s.refRepo, dbDir, entityID)
 	if err != nil {
-		return dc, fmt.Errorf("get parent epic %s: %w", feat.EpicID, err)
+		return domain.DialogContext{}, err
 	}
-	idea, err := s.ideaRepo.GetIdea(ctx, dbDir, epic.IdeaID)
-	if err != nil {
-		return dc, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	dc.Ancestors = []domain.DialogContextEntity{
-		ideaToContextEntity(*idea),
-		epicToContextEntity(*epic),
-	}
-	dc.Target = featureToContextEntity(feat)
-	return dc, nil
-}
-
-// buildStoryContext walks Story → Feature → Epic → Idea.
-func (s *ExpandService) buildStoryContext(ctx context.Context, dbDir string, story domain.Story) (domain.DialogContext, error) {
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, dbDir, story.ID, &dc); err != nil {
-		return dc, err
-	}
-	feat, err := s.featRepo.GetFeature(ctx, dbDir, story.FeatureID)
-	if err != nil {
-		return dc, fmt.Errorf("get parent feature %s: %w", story.FeatureID, err)
-	}
-	epic, err := s.epicRepo.GetEpic(ctx, dbDir, feat.EpicID)
-	if err != nil {
-		return dc, fmt.Errorf("get parent epic %s: %w", feat.EpicID, err)
-	}
-	idea, err := s.ideaRepo.GetIdea(ctx, dbDir, epic.IdeaID)
-	if err != nil {
-		return dc, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	dc.Ancestors = []domain.DialogContextEntity{
-		ideaToContextEntity(*idea),
-		epicToContextEntity(*epic),
-		featureToContextEntity(*feat),
-	}
-	dc.Target = storyToContextEntity(story)
-	return dc, nil
+	return domain.DialogContext{
+		Workspace: ws,
+		Target:    target,
+		Refs:      refs,
+	}, nil
 }
 
 // ---------------------------------------------------------------------

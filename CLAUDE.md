@@ -531,11 +531,16 @@ Implemented:
   `d7 expand story <story-id> [--model <id>]` each run an
   interactive interview-first AI dialog and, on acceptance,
   replace that entity's Description with the approved text. All
-  four commands share a single `ExpandService` that walks the
-  entity's own parent chain into the dialog context: Idea has no
-  ancestors (workspace description only), Epic includes the
-  parent Idea, Feature includes Idea + Epic, Story includes Idea
-  + Epic + Feature. The dialog loop itself is a non-recursive
+  four commands share a single `ExpandService`. The cached dialog
+  context contains only the workspace description and the target
+  entity (with its refs inline). Ancestors, siblings, and
+  cross-links are *not* baked into the context; instead, the
+  model can explore them on demand via four read-only navigation
+  tools: `get_lineage`, `get_item_detail`, `get_siblings`, and
+  `trace_links` (see `internal/core/service/ai_nav_tools.go`).
+  Each takes one `id` argument and returns plain text. Navigation
+  calls do not count against the interview budget and are capped
+  at 20 per dialog. The dialog loop itself is a non-recursive
   state machine (see `internal/core/service/ai_loop.go`) driven
   through the `AIAssistant`, `Interaction`, `StatusRenderer`,
   and `Clock` ports. Defaults: `claude-haiku-4-5-20251001` model,
@@ -563,10 +568,11 @@ Implemented:
   `d7 suggest scenarios --spec SPEC-XXX [--model <id>]` each
   run an interactive interview-first AI dialog that proposes a
   *batch* of child entities under the given parent. The five
-  commands share a single `SuggestService` that walks the parent
-  chain into the same `DialogContext` shape `ExpandService` uses
-  (ancestors + target), re-using `contextSource` helpers extracted
-  to `internal/core/service/ai_context.go`. The dialog reuses the
+  commands share a single `SuggestService` that uses the same
+  nav-tool-based `DialogContext` as `ExpandService` (workspace +
+  target only; ancestors/siblings/links via navigation tools).
+  Context helpers live in `internal/core/service/ai_context.go`.
+  The dialog reuses the
   same non-recursive state machine in `ai_loop.go`; the only
   additions there are an `_accepted []int` out-of-band annotation
   the review step writes into the payload (so apply knows which

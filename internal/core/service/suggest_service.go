@@ -55,14 +55,17 @@ var (
 // dependency, not a port inversion — the concrete services satisfy
 // the interfaces already.
 type SuggestService struct {
-	contextSource // embedded: attachCommonContext, resolveDialogLink
-
 	fs        driven.FileSystem
+	wsRepo    driven.WorkspaceRepository
 	ideaRepo  driven.IdeaRepository
 	epicRepo  driven.EpicRepository
 	featRepo  driven.FeatureRepository
 	storyRepo driven.StoryRepository
 	specRepo  driven.SpecRepository
+	scenRepo  driven.ScenarioRepository
+	linkRepo  driven.LinkRepository
+	refRepo   driven.RefRepository
+	resolver  driven.EntityResolver
 
 	// Driving creators — see the struct comment for why.
 	epicCreator     driving.EpicCreator
@@ -87,6 +90,7 @@ func NewSuggestService(
 	featRepo driven.FeatureRepository,
 	storyRepo driven.StoryRepository,
 	specRepo driven.SpecRepository,
+	scenRepo driven.ScenarioRepository,
 	linkRepo driven.LinkRepository,
 	refRepo driven.RefRepository,
 	resolver driven.EntityResolver,
@@ -101,18 +105,17 @@ func NewSuggestService(
 	clock driven.Clock,
 ) *SuggestService {
 	return &SuggestService{
-		contextSource: contextSource{
-			wsRepo:   wsRepo,
-			linkRepo: linkRepo,
-			refRepo:  refRepo,
-			resolver: resolver,
-		},
 		fs:              fs,
+		wsRepo:          wsRepo,
 		ideaRepo:        ideaRepo,
 		epicRepo:        epicRepo,
 		featRepo:        featRepo,
 		storyRepo:       storyRepo,
 		specRepo:        specRepo,
+		scenRepo:        scenRepo,
+		linkRepo:        linkRepo,
+		refRepo:         refRepo,
+		resolver:        resolver,
 		epicCreator:     epicCreator,
 		featureCreator:  featureCreator,
 		storyCreator:    storyCreator,
@@ -143,19 +146,13 @@ func (s *SuggestService) SuggestEpics(ctx context.Context, req driving.SuggestEp
 	if err != nil {
 		return nil, fmt.Errorf("get idea: %w", err)
 	}
-	// Pre-flight: the state-machine gate that applySuggestEpics would
-	// hit per-item at the end of the dialog. Running the gate here
-	// fails fast before the founder invests in an interview whose
-	// output can't be applied.
 	if !minIdeaStatusForEpic[idea.Status] {
 		return nil, fmt.Errorf("%w: %s is %s", ErrIdeaNotReady, idea.ID, idea.Status)
 	}
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, ws.DBDir, idea.ID, &dc); err != nil {
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, idea.ID, ideaToContextEntity(*idea))
+	if err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
-	dc.Target = ideaToContextEntity(*idea)
-
 	result, err := s.runSuggest(ctx, runSuggestParams{
 		command:           "suggest epics",
 		target:            idea.ID,
@@ -165,6 +162,7 @@ func (s *SuggestService) SuggestEpics(ctx context.Context, req driving.SuggestEp
 		schema:            suggestItemsSchema,
 		validate:          validateSuggestItemsPayload,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applySuggestEpics(ctx, req.RootDir, idea.ID, payload)
 		},
@@ -193,22 +191,13 @@ func (s *SuggestService) SuggestFeatures(ctx context.Context, req driving.Sugges
 	if err != nil {
 		return nil, fmt.Errorf("get epic: %w", err)
 	}
-	// Pre-flight: fail fast if the parent epic isn't ready to spawn
-	// features — see the SuggestEpics comment for the rationale.
 	if !minEpicStatusForFeature[epic.Status] {
 		return nil, fmt.Errorf("%w: %s is %s", ErrEpicNotReady, epic.ID, epic.Status)
 	}
-	idea, err := s.ideaRepo.GetIdea(ctx, ws.DBDir, epic.IdeaID)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, epic.ID, epicToContextEntity(*epic))
 	if err != nil {
-		return nil, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, ws.DBDir, epic.ID, &dc); err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
-	dc.Ancestors = []domain.DialogContextEntity{ideaToContextEntity(*idea)}
-	dc.Target = epicToContextEntity(*epic)
-
 	result, err := s.runSuggest(ctx, runSuggestParams{
 		command:           "suggest features",
 		target:            epic.ID,
@@ -218,6 +207,7 @@ func (s *SuggestService) SuggestFeatures(ctx context.Context, req driving.Sugges
 		schema:            suggestItemsSchema,
 		validate:          validateSuggestItemsPayload,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applySuggestFeatures(ctx, req.RootDir, epic.ID, payload)
 		},
@@ -246,29 +236,13 @@ func (s *SuggestService) SuggestStories(ctx context.Context, req driving.Suggest
 	if err != nil {
 		return nil, fmt.Errorf("get feature: %w", err)
 	}
-	// Pre-flight: fail fast if the parent feature isn't ready to spawn
-	// stories — see the SuggestEpics comment for the rationale.
 	if !minFeatureStatusForStory[feat.Status] {
 		return nil, fmt.Errorf("%w: %s is %s", ErrFeatureNotReady, feat.ID, feat.Status)
 	}
-	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, feat.EpicID)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, feat.ID, featureToContextEntity(*feat))
 	if err != nil {
-		return nil, fmt.Errorf("get parent epic %s: %w", feat.EpicID, err)
-	}
-	idea, err := s.ideaRepo.GetIdea(ctx, ws.DBDir, epic.IdeaID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, ws.DBDir, feat.ID, &dc); err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
-	dc.Ancestors = []domain.DialogContextEntity{
-		ideaToContextEntity(*idea),
-		epicToContextEntity(*epic),
-	}
-	dc.Target = featureToContextEntity(*feat)
-
 	result, err := s.runSuggest(ctx, runSuggestParams{
 		command:           "suggest stories",
 		target:            feat.ID,
@@ -278,6 +252,7 @@ func (s *SuggestService) SuggestStories(ctx context.Context, req driving.Suggest
 		schema:            suggestItemsSchema,
 		validate:          validateSuggestItemsPayload,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applySuggestStories(ctx, req.RootDir, feat.ID, payload)
 		},
@@ -306,34 +281,13 @@ func (s *SuggestService) SuggestSpecs(ctx context.Context, req driving.SuggestSp
 	if err != nil {
 		return nil, fmt.Errorf("get story: %w", err)
 	}
-	// Pre-flight: fail fast if the parent story isn't ready to spawn
-	// specs — see the SuggestEpics comment for the rationale.
 	if !minStoryStatusForSpec[story.Status] {
 		return nil, fmt.Errorf("%w: %s is %s", ErrStoryNotReady, story.ID, story.Status)
 	}
-	feat, err := s.featRepo.GetFeature(ctx, ws.DBDir, story.FeatureID)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, story.ID, storyToContextEntity(*story))
 	if err != nil {
-		return nil, fmt.Errorf("get parent feature %s: %w", story.FeatureID, err)
-	}
-	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, feat.EpicID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent epic %s: %w", feat.EpicID, err)
-	}
-	idea, err := s.ideaRepo.GetIdea(ctx, ws.DBDir, epic.IdeaID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, ws.DBDir, story.ID, &dc); err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
-	dc.Ancestors = []domain.DialogContextEntity{
-		ideaToContextEntity(*idea),
-		epicToContextEntity(*epic),
-		featureToContextEntity(*feat),
-	}
-	dc.Target = storyToContextEntity(*story)
-
 	result, err := s.runSuggest(ctx, runSuggestParams{
 		command:           "suggest specs",
 		target:            story.ID,
@@ -343,6 +297,7 @@ func (s *SuggestService) SuggestSpecs(ctx context.Context, req driving.SuggestSp
 		schema:            suggestItemsSchema,
 		validate:          validateSuggestItemsPayload,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applySuggestSpecs(ctx, req.RootDir, story.ID, payload)
 		},
@@ -358,8 +313,7 @@ func (s *SuggestService) SuggestSpecs(ctx context.Context, req driving.SuggestSp
 }
 
 // SuggestScenarios runs the interactive dialog to propose a batch of
-// Scenarios under a parent Spec. Scenarios are the one structured
-// child — their items carry Given/When/Then, not a flat description.
+// Scenarios under a parent Spec.
 func (s *SuggestService) SuggestScenarios(ctx context.Context, req driving.SuggestScenariosRequest) ([]domain.Scenario, error) {
 	if req.SpecID == "" {
 		return nil, ErrSuggestIDRequired
@@ -372,39 +326,13 @@ func (s *SuggestService) SuggestScenarios(ctx context.Context, req driving.Sugge
 	if err != nil {
 		return nil, fmt.Errorf("get spec: %w", err)
 	}
-	// Pre-flight: fail fast if the parent spec isn't ready to spawn
-	// scenarios — see the SuggestEpics comment for the rationale.
 	if !minSpecStatusForScenario[spec.Status] {
 		return nil, fmt.Errorf("%w: %s is %s", ErrSpecNotReady, spec.ID, spec.Status)
 	}
-	story, err := s.storyRepo.GetStory(ctx, ws.DBDir, spec.StoryID)
+	dc, err := s.buildTargetContext(ctx, ws.DBDir, spec.ID, specToContextEntity(*spec))
 	if err != nil {
-		return nil, fmt.Errorf("get parent story %s: %w", spec.StoryID, err)
-	}
-	feat, err := s.featRepo.GetFeature(ctx, ws.DBDir, story.FeatureID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent feature %s: %w", story.FeatureID, err)
-	}
-	epic, err := s.epicRepo.GetEpic(ctx, ws.DBDir, feat.EpicID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent epic %s: %w", feat.EpicID, err)
-	}
-	idea, err := s.ideaRepo.GetIdea(ctx, ws.DBDir, epic.IdeaID)
-	if err != nil {
-		return nil, fmt.Errorf("get parent idea %s: %w", epic.IdeaID, err)
-	}
-	var dc domain.DialogContext
-	if err := s.attachCommonContext(ctx, ws.DBDir, spec.ID, &dc); err != nil {
 		return nil, fmt.Errorf("build dialog context: %w", err)
 	}
-	dc.Ancestors = []domain.DialogContextEntity{
-		ideaToContextEntity(*idea),
-		epicToContextEntity(*epic),
-		featureToContextEntity(*feat),
-		storyToContextEntity(*story),
-	}
-	dc.Target = specToContextEntity(*spec)
-
 	result, err := s.runSuggest(ctx, runSuggestParams{
 		command:           "suggest scenarios",
 		target:            spec.ID,
@@ -414,6 +342,7 @@ func (s *SuggestService) SuggestScenarios(ctx context.Context, req driving.Sugge
 		schema:            suggestScenariosSchema,
 		validate:          validateSuggestScenariosPayload,
 		dc:                dc,
+		dbDir:             ws.DBDir,
 		apply: func(ctx context.Context, payload map[string]any) (any, error) {
 			return s.applySuggestScenarios(ctx, req.RootDir, spec.ID, payload)
 		},
@@ -441,6 +370,7 @@ type runSuggestParams struct {
 	schema            map[string]any
 	validate          func(map[string]any) error
 	dc                domain.DialogContext
+	dbDir             string
 	apply             func(ctx context.Context, payload map[string]any) (any, error)
 }
 
@@ -452,24 +382,60 @@ func (s *SuggestService) runSuggest(ctx context.Context, p runSuggestParams) (an
 	if model == "" {
 		model = defaultSuggestModel
 	}
+
+	handler := &NavToolsHandler{
+		ideaRepo:  s.ideaRepo,
+		epicRepo:  s.epicRepo,
+		featRepo:  s.featRepo,
+		storyRepo: s.storyRepo,
+		specRepo:  s.specRepo,
+		scenRepo:  s.scenRepo,
+		linkRepo:  s.linkRepo,
+		refRepo:   s.refRepo,
+		resolver:  s.resolver,
+		dbDir:     p.dbDir,
+	}
+
+	tools := suggestTools(p.submitDescription, p.schema)
+	tools = append(tools, navToolDefs()...)
+
 	dlg := &aiDialog{
 		command:          p.command,
 		target:           p.target,
 		model:            model,
-		system:           p.systemPrompt,
+		system:           p.systemPrompt + navOrientationClause,
 		contextBlock:     domain.FormatDialogContext(p.dc),
-		tools:            suggestTools(p.submitDescription, p.schema),
+		tools:            tools,
 		maxTokensPerTurn: defaultSuggestMaxTokens,
 		maxInterviews:    defaultSuggestMaxInterviews,
 		malformedBudget:  defaultSuggestMalformedBudget,
 		backoffBudget:    defaultSuggestBackoffBudget,
 		backoffBase:      defaultSuggestBackoffBase,
 
+		navHandler:     handler.Handle,
 		validate:       p.validate,
 		renderProposal: renderSuggestProposal,
 		apply:          p.apply,
 	}
 	return runDialog(ctx, dlg, s.llm, s.inter, s.status, s.clock)
+}
+
+// buildTargetContext builds a DialogContext with just the workspace
+// description, the target entity, and its refs.
+func (s *SuggestService) buildTargetContext(ctx context.Context, dbDir, entityID string, target domain.DialogContextEntity) (domain.DialogContext, error) {
+	ws, err := loadWorkspace(ctx, s.wsRepo, dbDir)
+	if err != nil {
+		return domain.DialogContext{}, err
+	}
+	refs, err := loadTargetRefs(ctx, s.refRepo, dbDir, entityID)
+	if err != nil {
+		return domain.DialogContext{}, err
+	}
+	return domain.DialogContext{
+		Workspace: ws,
+		Target:    target,
+		Refs:      refs,
+	}, nil
 }
 
 // ---------------------------------------------------------------------

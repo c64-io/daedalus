@@ -376,7 +376,7 @@ func TestRunDialog_MalformedThenSuccess(t *testing.T) {
 	req2 := llm.requests[1]
 	found := false
 	for _, m := range req2.Messages {
-		if m.Text != "" && strings.Contains(m.Text, "ask_question or submit_proposal") {
+		if m.Text != "" && strings.Contains(m.Text, "available tools") {
 			found = true
 		}
 	}

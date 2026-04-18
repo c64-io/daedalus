@@ -234,8 +234,11 @@ func newSuggestFixture(t *testing.T, llmScript []expScriptedTurn, answers []driv
 	inter := &expFakeInter{answers: answers, decisions: decisions}
 	clock := &expFixedClock{now: time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)}
 
+	scenRepo := &fakeScenarioRepo{}
+
 	svc := service.NewSuggestService(
 		fs, wsRepo, ideaRepo, epicRepo, featRepo, storyRepo, specRepo,
+		scenRepo,
 		linkRepo, refRepo, resolver,
 		epicCreator, featureCreator, storyCreator, specCreator, scenarioCreator,
 		llm, inter, expNullStatus{}, clock,
@@ -357,8 +360,7 @@ func TestSuggestEpics_HappyPath_AcceptAll(t *testing.T) {
 		t.Errorf("CreateEpic[0].Title: got %q", f.epicCreator.reqs[0].Title)
 	}
 
-	// Context block should reference the parent Idea but NOT any entity
-	// deeper than it — this is an "under an Idea" dialog.
+	// Context block: workspace + target only (IDEA-001). No descendants.
 	ctxBlock := f.llm.requests[0].Context
 	if !strings.Contains(ctxBlock, "IDEA-001") {
 		t.Errorf("context missing target IDEA-001:\n%s", ctxBlock)
@@ -451,10 +453,10 @@ func TestSuggestEpics_CreatorError_ReturnsPartialAndWraps(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
-// SuggestFeatures — ancestors should include Idea
+// SuggestFeatures — context has target only; ancestors via nav tools.
 // ---------------------------------------------------------------------
 
-func TestSuggestFeatures_ContextIncludesIdeaAncestor(t *testing.T) {
+func TestSuggestFeatures_ContextHasTargetOnly(t *testing.T) {
 	t.Parallel()
 	items := []map[string]any{
 		{"title": "Checkout", "description": "Apply at checkout."},
@@ -469,11 +471,11 @@ func TestSuggestFeatures_ContextIncludesIdeaAncestor(t *testing.T) {
 		t.Fatalf("SuggestFeatures: %v", err)
 	}
 	ctxBlock := f.llm.requests[0].Context
-	if !strings.Contains(ctxBlock, "IDEA-001") {
-		t.Errorf("context missing ancestor IDEA-001:\n%s", ctxBlock)
-	}
 	if !strings.Contains(ctxBlock, "EPIC-001") {
 		t.Errorf("context missing target EPIC-001:\n%s", ctxBlock)
+	}
+	if strings.Contains(ctxBlock, "IDEA-001") {
+		t.Errorf("context should not contain ancestor IDEA-001:\n%s", ctxBlock)
 	}
 	if len(f.featureCreator.reqs) != 1 {
 		t.Errorf("CreateFeature calls: got %d, want 1", len(f.featureCreator.reqs))
@@ -767,5 +769,61 @@ func TestSuggestStories_OnlyDirectParentGates_NotAncestors(t *testing.T) {
 	}
 	if len(f.storyCreator.reqs) != 1 {
 		t.Errorf("expected 1 CreateStory call; got %d", len(f.storyCreator.reqs))
+	}
+}
+
+// TestSuggestEpics_NavTool_GetSiblings_ThenSubmit scripts a dialog where the
+// model calls get_siblings before submitting a batch. This verifies that nav
+// tool results appear in subsequent LLM requests and that the proposal is
+// applied correctly.
+func TestSuggestEpics_NavTool_GetSiblings_ThenSubmit(t *testing.T) {
+	t.Parallel()
+
+	items := []map[string]any{
+		{"title": "Coupon analytics", "description": "Track redemption rates."},
+	}
+	f := newSuggestFixture(t,
+		[]expScriptedTurn{
+			// Turn 1: model calls get_siblings to see existing epics
+			{toolUse: &driven.ToolUseContent{
+				ID: "nav1", Name: driven.ToolGetSiblings,
+				Input: map[string]any{"id": "EPIC-001"},
+			}},
+			// Turn 2: model submits proposal
+			{toolUse: submitMulti(items)},
+		},
+		nil,
+		[]driven.Decision{acceptAll(1)},
+	)
+
+	_, err := f.svc.SuggestEpics(context.Background(), driving.SuggestEpicsRequest{IdeaID: "IDEA-001"})
+	if err != nil {
+		t.Fatalf("SuggestEpics: %v", err)
+	}
+
+	// 2 LLM calls: nav tool, then submit_proposal.
+	if len(f.llm.requests) != 2 {
+		t.Fatalf("expected 2 LLM requests, got %d", len(f.llm.requests))
+	}
+
+	// The second request should contain the nav tool result in messages.
+	msgs := f.llm.requests[1].Messages
+	foundNavResult := false
+	for _, m := range msgs {
+		if m.ToolResult != nil && strings.Contains(m.ToolResult.Content, "(no siblings)") {
+			foundNavResult = true
+			break
+		}
+	}
+	if !foundNavResult {
+		t.Error("second LLM request should contain get_siblings tool result")
+	}
+
+	// 1 epic was created.
+	if len(f.epicCreator.reqs) != 1 {
+		t.Errorf("expected 1 CreateEpic call; got %d", len(f.epicCreator.reqs))
+	}
+	if f.epicCreator.reqs[0].Title != "Coupon analytics" {
+		t.Errorf("title: got %q", f.epicCreator.reqs[0].Title)
 	}
 }

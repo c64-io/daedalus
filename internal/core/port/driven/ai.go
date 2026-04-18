@@ -24,6 +24,15 @@ const (
 	ToolSubmitProposal = "submit_proposal"
 )
 
+// Navigation tool names — read-only tools the model can call mid-dialog
+// to explore the entity graph on demand.
+const (
+	ToolGetLineage    = "get_lineage"
+	ToolGetItemDetail = "get_item_detail"
+	ToolGetSiblings   = "get_siblings"
+	ToolTraceLinks    = "trace_links"
+)
+
 // ChatRequest is one turn of a dialog sent to the provider. System
 // and Context are intended to be cached by the adapter; Messages are
 // the growing, per-turn conversation tail and are NOT cached.

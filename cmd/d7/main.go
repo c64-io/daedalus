@@ -54,11 +54,13 @@ func main() {
 	linkSvc := service.NewLinkService(fs, linkRepo, refRepo, entityResolver, historyRepo)
 	expandSvc := service.NewExpandService(
 		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo,
+		specRepo, scenarioRepo,
 		linkRepo, refRepo, entityResolver, historyRepo,
 		llm, inter, status, clock,
 	)
 	suggestSvc := service.NewSuggestService(
 		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo, specRepo,
+		scenarioRepo,
 		linkRepo, refRepo, entityResolver,
 		epicSvc, featureSvc, storySvc, specSvc, scenarioSvc,
 		llm, inter, status, clock,

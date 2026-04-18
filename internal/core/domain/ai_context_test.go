@@ -23,30 +23,27 @@ func TestFormatDialogContext_MinimalIdea(t *testing.T) {
 
 	mustContain(t, got, "# Product")
 	mustContain(t, got, "A coupon system for small online shops.")
-	mustContain(t, got, "# Hierarchy")
-	mustContain(t, got, "[target]")
+	mustContain(t, got, "# Target")
 	mustContain(t, got, `Idea IDEA-001 — "Coupon system" (draft)`)
 	mustContain(t, got, "We want shoppers to be able to redeem coupons at checkout.")
 
+	if strings.Contains(got, "# Hierarchy") {
+		t.Fatalf("should not contain old Hierarchy section; got:\n%s", got)
+	}
 	if strings.Contains(got, "[context]") {
-		t.Fatalf("no ancestors should not produce [context] nodes; got:\n%s", got)
+		t.Fatalf("should not contain [context] labels; got:\n%s", got)
+	}
+	if strings.Contains(got, "[target]") {
+		t.Fatalf("should not contain [target] labels; got:\n%s", got)
 	}
 	if strings.Contains(got, "# Related work") {
-		t.Fatalf("no links should not render a links section; got:\n%s", got)
-	}
-	if strings.Contains(got, "# External references") {
-		t.Fatalf("no refs should not render a refs section; got:\n%s", got)
+		t.Fatalf("should not contain Related work section; got:\n%s", got)
 	}
 }
 
-func TestFormatDialogContext_StoryWithFullAncestorChain(t *testing.T) {
+func TestFormatDialogContext_StoryWithRefs(t *testing.T) {
 	c := domain.DialogContext{
 		Workspace: "A coupon system for small online shops.",
-		Ancestors: []domain.DialogContextEntity{
-			{Kind: "Idea", ID: "IDEA-001", Title: "Coupons", Status: "refined", Description: "Shoppers redeem coupons."},
-			{Kind: "Epic", ID: "EPIC-003", Title: "Redemption", Status: "refined", Description: "The whole redemption flow.", Priority: "high", Size: "8"},
-			{Kind: "Feature", ID: "FEAT-007", Title: "Checkout redemption", Status: "refined", Description: "Redeem at checkout."},
-		},
 		Target: domain.DialogContextEntity{
 			Kind:        "Story",
 			ID:          "STORY-042",
@@ -56,10 +53,6 @@ func TestFormatDialogContext_StoryWithFullAncestorChain(t *testing.T) {
 			Priority:    "high",
 			Size:        "5",
 		},
-		Links: []domain.DialogContextLink{
-			{Relation: "blocked by", OtherID: "STORY-050", OtherTitle: "Logged-in user"},
-			{Relation: "relates to", OtherID: "SPEC-012", OtherTitle: "Pricing rules"},
-		},
 		Refs: []domain.DialogContextRef{
 			{URL: "https://figma.com/coupons", Label: "Checkout mockup"},
 			{URL: "https://example.com/notes"},
@@ -68,22 +61,24 @@ func TestFormatDialogContext_StoryWithFullAncestorChain(t *testing.T) {
 
 	got := domain.FormatDialogContext(c)
 
-	mustContain(t, got, "# Hierarchy")
-
-	// Ancestors are labeled [context]; the target is [target].
-	mustContain(t, got, `[context] **Idea IDEA-001 — "Coupons" (refined)`)
-	mustContain(t, got, `[context] **Epic EPIC-003 — "Redemption" (refined) · priority: high · size: 8`)
-	mustContain(t, got, `[context] **Feature FEAT-007 — "Checkout redemption" (refined)`)
-	mustContain(t, got, `[target] **Story STORY-042 — "User redeems a valid coupon" (draft) · priority: high · size: 5`)
+	mustContain(t, got, "# Target")
+	mustContain(t, got, `Story STORY-042 — "User redeems a valid coupon" (draft) · priority: high · size: 5`)
 	mustContain(t, got, "Rough wording: user enters code, gets discount.")
 
-	mustContain(t, got, "# Related work")
-	mustContain(t, got, "- blocked by STORY-050 — Logged-in user")
-	mustContain(t, got, "- relates to SPEC-012 — Pricing rules")
-
-	mustContain(t, got, "# External references")
+	mustContain(t, got, "Refs:")
 	mustContain(t, got, "- Checkout mockup (https://figma.com/coupons)")
 	mustContain(t, got, "- https://example.com/notes")
+
+	// No ancestors, links, or hierarchy in the output.
+	if strings.Contains(got, "# Hierarchy") {
+		t.Fatalf("should not contain Hierarchy section; got:\n%s", got)
+	}
+	if strings.Contains(got, "# Related work") {
+		t.Fatalf("should not contain Related work section; got:\n%s", got)
+	}
+	if strings.Contains(got, "# External references") {
+		t.Fatalf("refs should be inline, not a separate section; got:\n%s", got)
+	}
 }
 
 func TestFormatDialogContext_Scenario(t *testing.T) {
@@ -141,6 +136,35 @@ func TestFormatDialogContext_MultilineDescriptionIndented(t *testing.T) {
 	}
 	got := domain.FormatDialogContext(c)
 	mustContain(t, got, "  first line\n  second line\n  third line")
+}
+
+func TestFormatDialogContext_NoRefsSection_WhenEmpty(t *testing.T) {
+	c := domain.DialogContext{
+		Target: domain.DialogContextEntity{Kind: "Idea", ID: "IDEA-001", Title: "x", Status: "draft"},
+	}
+	got := domain.FormatDialogContext(c)
+	if strings.Contains(got, "Refs:") {
+		t.Fatalf("empty refs should not render Refs section; got:\n%s", got)
+	}
+}
+
+func TestWriteEntityDetail_WithRefs(t *testing.T) {
+	e := domain.DialogContextEntity{
+		Kind:        "Epic",
+		ID:          "EPIC-003",
+		Title:       "Redemption",
+		Status:      "refined",
+		Description: "The whole redemption flow.",
+		Priority:    "high",
+		Size:        "8",
+	}
+	refs := []domain.DialogContextRef{
+		{URL: "https://example.com/design", Label: "Design doc"},
+	}
+	got := domain.WriteEntityDetail(e, refs)
+	mustContain(t, got, `Epic EPIC-003 — "Redemption" (refined) · priority: high · size: 8`)
+	mustContain(t, got, "The whole redemption flow.")
+	mustContain(t, got, "- Design doc (https://example.com/design)")
 }
 
 func mustContain(t *testing.T, s, sub string) {

@@ -26,6 +26,7 @@ const (
 	stateApplyChanges
 	stateBackoff
 	stateRetryMalformed
+	stateHandleNavTool
 
 	// Terminal states.
 	stateFailed
@@ -59,6 +60,13 @@ type aiDialog struct {
 	malformedBudget int           // retries when LLM fails to call a tool
 	backoffBudget   int           // retries on rate-limit / network errors
 	backoffBase     time.Duration // initial backoff; doubles on each use
+
+	// Navigation tool handler. When non-nil, the four nav tools
+	// (get_lineage, get_item_detail, get_siblings, trace_links) are
+	// dispatched through this function.
+	navHandler   func(ctx context.Context, tu *driven.ToolUseContent) string
+	navCallsUsed int
+	maxNavCalls  int // default 20
 
 	// Callbacks. `validate` inspects the raw tool_input before we show
 	// it to the founder. `renderProposal` turns the payload into a
@@ -102,6 +110,9 @@ func runDialog(
 	d.backoffDelay = d.backoffBase
 	if d.maxTokensPerTurn == 0 {
 		d.maxTokensPerTurn = 4096
+	}
+	if d.maxNavCalls == 0 {
+		d.maxNavCalls = 20
 	}
 
 	// Anthropic's Messages API rejects a request with an empty messages
@@ -163,6 +174,8 @@ func (d *aiDialog) step(
 		return d.backoff(ctx, clock, status)
 	case stateRetryMalformed:
 		return d.retryMalformed()
+	case stateHandleNavTool:
+		return d.handleNavTool(ctx)
 	}
 	d.lastError = fmt.Errorf("ai: state machine reached unknown state %d", state)
 	return stateFailed
@@ -243,9 +256,17 @@ func (d *aiDialog) inspectResponse() aiState {
 	case driven.ToolSubmitProposal:
 		d.lastPayload = d.lastResponse.ToolUse.Input
 		return stateValidateProposal
+	case driven.ToolGetLineage, driven.ToolGetItemDetail,
+		driven.ToolGetSiblings, driven.ToolTraceLinks:
+		if d.navHandler != nil {
+			return stateHandleNavTool
+		}
+		d.messages = append(d.messages, driven.Message{
+			Role:    driven.RoleAssistant,
+			ToolUse: d.lastResponse.ToolUse,
+		})
+		return d.bumpMalformed()
 	default:
-		// Unknown tool — also record the attempted call so the model
-		// sees what it did wrong.
 		d.messages = append(d.messages, driven.Message{
 			Role:    driven.RoleAssistant,
 			ToolUse: d.lastResponse.ToolUse,
@@ -311,6 +332,34 @@ func (d *aiDialog) askUser(ctx context.Context, inter driven.Interaction, status
 		})
 	}
 
+	return stateCallLLM
+}
+
+// handleNavTool dispatches a navigation tool call and appends both
+// the assistant tool_use and the user tool_result to the message
+// history atomically. Nav turns do not count against interviewTurns
+// or malformedBudget — they are pure graph reads.
+func (d *aiDialog) handleNavTool(ctx context.Context) aiState {
+	tu := d.lastResponse.ToolUse
+	content := d.navHandler(ctx, tu)
+	d.messages = append(d.messages, driven.Message{
+		Role:    driven.RoleAssistant,
+		ToolUse: tu,
+	})
+	d.messages = append(d.messages, driven.Message{
+		Role: driven.RoleUser,
+		ToolResult: &driven.ToolResultContent{
+			ToolUseID: tu.ID,
+			Content:   content,
+		},
+	})
+	d.navCallsUsed++
+	if d.maxNavCalls > 0 && d.navCallsUsed > d.maxNavCalls {
+		d.messages = append(d.messages, driven.Message{
+			Role: driven.RoleUser,
+			Text: "You've used your navigation budget. Please ask the founder a question or submit your proposal.",
+		})
+	}
 	return stateCallLLM
 }
 
@@ -483,22 +532,22 @@ func (d *aiDialog) retryMalformed() aiState {
 // specific — a generic "please call a tool" reminder has nothing to
 // latch onto when the model is already confused.
 func (d *aiDialog) malformedRetryHint() string {
-	base := "Your previous response could not be processed. Please call exactly one of the tools available to you (ask_question or submit_proposal) on your next turn."
+	base := "Your previous response could not be processed. Please call exactly one of the tools available to you on your next turn."
 	if d.lastResponse == nil {
 		return base
 	}
 	if d.lastResponse.StopReason == "max_tokens" {
-		return "Your previous response was cut off before you finished (stop_reason: max_tokens). Keep your next turn concise and call exactly one tool — ask_question or submit_proposal."
+		return "Your previous response was cut off before you finished (stop_reason: max_tokens). Keep your next turn concise and call exactly one tool."
 	}
 	switch {
 	case d.lastResponse.ToolUse != nil &&
 		d.lastResponse.ToolUse.Name != driven.ToolAskQuestion &&
 		d.lastResponse.ToolUse.Name != driven.ToolSubmitProposal:
-		return fmt.Sprintf("You called tool %q, which is not available. Please call ask_question or submit_proposal instead.", d.lastResponse.ToolUse.Name)
+		return fmt.Sprintf("You called tool %q, which is not available. Please call one of the available tools instead.", d.lastResponse.ToolUse.Name)
 	case d.lastResponse.RawText != "":
-		return "You replied with plain text instead of calling a tool. The founder never sees plain text from you — it is discarded. Please call ask_question or submit_proposal on your next turn."
+		return "You replied with plain text instead of calling a tool. The founder never sees plain text from you — it is discarded. Please call one of the available tools on your next turn."
 	case d.lastResponse.ToolUse == nil:
-		return "Your previous turn returned no usable content. Please call ask_question or submit_proposal on your next turn."
+		return "Your previous turn returned no usable content. Please call one of the available tools on your next turn."
 	}
 	// Validator error path — lastPayload was structurally a tool call
 	// but failed schema validation. Surface the reason so the model

@@ -96,6 +96,8 @@ type expandFixture struct {
 	epicRepo    *fakeEpicRepo
 	featureRepo *fakeFeatureRepo
 	storyRepo   *fakeStoryRepo
+	specRepo    *fakeSpecRepo
+	scenRepo    *fakeScenarioRepo
 	history     *fakeHistoryRepo
 	llm         *expFakeLLM
 	inter       *expFakeInter
@@ -152,6 +154,8 @@ func newExpandFixture(t *testing.T, llmScript []expScriptedTurn, answers []drive
 		CreatedAt:   time.Now(),
 	})
 
+	specRepo := &fakeSpecRepo{}
+	scenRepo := &fakeScenarioRepo{}
 	linkRepo := &fakeLinkRepo{}
 	refRepo := &fakeRefRepo{}
 	resolver := &fakeEntityResolver{entities: map[string]string{
@@ -168,6 +172,7 @@ func newExpandFixture(t *testing.T, llmScript []expScriptedTurn, answers []drive
 
 	svc := service.NewExpandService(
 		fs, wsRepo, ideaRepo, epicRepo, featureRepo, storyRepo,
+		specRepo, scenRepo,
 		linkRepo, refRepo, resolver, history,
 		llm, inter, expNullStatus{}, clock,
 	)
@@ -179,6 +184,8 @@ func newExpandFixture(t *testing.T, llmScript []expScriptedTurn, answers []drive
 		epicRepo:    epicRepo,
 		featureRepo: featureRepo,
 		storyRepo:   storyRepo,
+		specRepo:    specRepo,
+		scenRepo:    scenRepo,
 		history:     history,
 		llm:         llm,
 		inter:       inter,
@@ -322,20 +329,21 @@ func TestExpandEpic_HappyPath(t *testing.T) {
 		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
 	}
 
-	// Epic context should include the parent Idea and the target Epic,
-	// but not deeper entities.
+	// Context block now contains only workspace + target. Ancestors
+	// are accessible via nav tools, not baked into the context.
 	if len(f.llm.requests) == 0 {
 		t.Fatalf("expected at least one LLM call")
 	}
 	ctxBlock := f.llm.requests[0].Context
-	for _, needle := range []string{"A coupon SaaS.", "IDEA-001", "EPIC-001"} {
+	for _, needle := range []string{"A coupon SaaS.", "EPIC-001"} {
 		if !strings.Contains(ctxBlock, needle) {
 			t.Errorf("context block missing %q; got:\n%s", needle, ctxBlock)
 		}
 	}
-	for _, descendant := range []string{"FEAT-001", "STORY-001"} {
-		if strings.Contains(ctxBlock, descendant) {
-			t.Errorf("context block should not contain descendant %q; got:\n%s", descendant, ctxBlock)
+	// Ancestors and descendants should not be in the static context.
+	for _, other := range []string{"IDEA-001", "FEAT-001", "STORY-001"} {
+		if strings.Contains(ctxBlock, other) {
+			t.Errorf("context block should not contain %q; got:\n%s", other, ctxBlock)
 		}
 	}
 
@@ -390,19 +398,20 @@ func TestExpandFeature_HappyPath(t *testing.T) {
 		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
 	}
 
-	// Feature context should include both ancestors (Idea + Epic) and the
-	// target Feature, but not the child Story.
+	// Context block: workspace + target only. Ancestors are nav-tool accessible.
 	if len(f.llm.requests) == 0 {
 		t.Fatalf("expected at least one LLM call")
 	}
 	ctxBlock := f.llm.requests[0].Context
-	for _, needle := range []string{"A coupon SaaS.", "IDEA-001", "EPIC-001", "FEAT-001"} {
+	for _, needle := range []string{"A coupon SaaS.", "FEAT-001"} {
 		if !strings.Contains(ctxBlock, needle) {
 			t.Errorf("context block missing %q; got:\n%s", needle, ctxBlock)
 		}
 	}
-	if strings.Contains(ctxBlock, "STORY-001") {
-		t.Errorf("context block should not contain descendant STORY-001; got:\n%s", ctxBlock)
+	for _, other := range []string{"IDEA-001", "EPIC-001", "STORY-001"} {
+		if strings.Contains(ctxBlock, other) {
+			t.Errorf("context block should not contain %q; got:\n%s", other, ctxBlock)
+		}
 	}
 
 	if len(f.history.entries) != 1 {
@@ -459,19 +468,19 @@ func TestExpandStory_HappyPath(t *testing.T) {
 		t.Fatalf("description: got %q, want %q", got.Description, wantDesc)
 	}
 
-	// The context block handed to the LLM must include the whole ancestor
-	// chain and the workspace description.
+	// Context block: workspace + target only. Ancestors accessible via nav tools.
 	if len(f.llm.requests) == 0 {
 		t.Fatalf("expected at least one LLM call")
 	}
 	ctxBlock := f.llm.requests[0].Context
-	for _, needle := range []string{
-		"A coupon SaaS.",
-		"IDEA-001", "EPIC-001", "FEAT-001",
-		"User redeems a coupon",
-	} {
+	for _, needle := range []string{"A coupon SaaS.", "STORY-001", "User redeems a coupon"} {
 		if !strings.Contains(ctxBlock, needle) {
 			t.Errorf("context block missing %q; got:\n%s", needle, ctxBlock)
+		}
+	}
+	for _, other := range []string{"IDEA-001", "EPIC-001", "FEAT-001"} {
+		if strings.Contains(ctxBlock, other) {
+			t.Errorf("context block should not contain ancestor %q; got:\n%s", other, ctxBlock)
 		}
 	}
 
@@ -615,5 +624,73 @@ func TestExpandStory_NoChangeSkipsHistoryWrite(t *testing.T) {
 	}
 	if len(f.history.entries) != 0 {
 		t.Fatalf("expected no history entries for no-change, got %d", len(f.history.entries))
+	}
+}
+
+// TestExpandEpic_NavTool_GetLineage_ThenSubmit scripts a dialog where the
+// model calls get_lineage before asking a question and submitting. This
+// verifies that (a) nav tool results appear in subsequent LLM requests,
+// (b) the proposal is applied, and (c) the ask_question is the only
+// interview turn.
+func TestExpandEpic_NavTool_GetLineage_ThenSubmit(t *testing.T) {
+	t.Parallel()
+
+	f := newExpandFixture(t,
+		[]expScriptedTurn{
+			// Turn 1: model calls get_lineage
+			{toolUse: &driven.ToolUseContent{
+				ID: "nav1", Name: driven.ToolGetLineage,
+				Input: map[string]any{"id": "EPIC-001"},
+			}},
+			// Turn 2: model asks a question
+			{toolUse: &driven.ToolUseContent{
+				ID: "q1", Name: driven.ToolAskQuestion,
+				Input: map[string]any{"question": "is receipt display in scope?", "why": "boundary check"},
+			}},
+			// Turn 3: model submits proposal
+			{toolUse: &driven.ToolUseContent{
+				ID: "p1", Name: driven.ToolSubmitProposal,
+				Input: map[string]any{"description": "Redemption at checkout, no receipt display."},
+			}},
+		},
+		[]driven.Answer{{Kind: driven.AnswerReply, Text: "no, receipt display is out of scope"}},
+		[]driven.Decision{{Kind: driven.DecisionAccept}},
+	)
+	f.epicRepo.epics[0].Description = ""
+
+	got, err := f.svc.ExpandEpic(context.Background(), driving.ExpandEpicRequest{EpicID: "EPIC-001"})
+	if err != nil {
+		t.Fatalf("ExpandEpic: %v", err)
+	}
+	if got.Description != "Redemption at checkout, no receipt display." {
+		t.Fatalf("description: got %q", got.Description)
+	}
+
+	// 3 LLM calls: nav tool, ask_question, submit_proposal.
+	if len(f.llm.requests) != 3 {
+		t.Fatalf("expected 3 LLM requests, got %d", len(f.llm.requests))
+	}
+
+	// The second request (after get_lineage) should include the nav
+	// tool result in its messages.
+	msgs := f.llm.requests[1].Messages
+	foundNavResult := false
+	for _, m := range msgs {
+		if m.ToolResult != nil && strings.Contains(m.ToolResult.Content, "IDEA-001 > EPIC-001") {
+			foundNavResult = true
+			break
+		}
+	}
+	if !foundNavResult {
+		t.Error("second LLM request should contain get_lineage tool result with lineage chain")
+	}
+
+	// Only 1 question was asked to the founder (the ask_question turn).
+	if len(f.inter.seenQs) != 1 {
+		t.Fatalf("expected 1 founder question, got %d", len(f.inter.seenQs))
+	}
+
+	if len(f.history.entries) != 1 {
+		t.Fatalf("expected 1 history entry, got %d", len(f.history.entries))
 	}
 }

@@ -1,5 +1,7 @@
 package service
 
+import "github.com/c64-io/daedalus/internal/core/port/driven"
+
 // AI prompts and tool schemas live here as plain constants. Each
 // command × entity gets its own system prompt (17 total in v1) —
 // duplication is intentional; short, focused prompts beat one giant
@@ -424,3 +426,56 @@ Rules for the proposal:
 On every turn you MUST call exactly one tool: either ask_question or submit_proposal. Do not answer in plain text.`
 
 const suggestScenariosSubmitDescription = "Finalize the list of scenarios for this spec. Each item is one Given/When/Then example that a cucumber-style runner could execute."
+
+// ---------------------------------------------------------------------
+// Navigation tools — shared by expand and suggest commands.
+// ---------------------------------------------------------------------
+
+// navOrientationClause is appended to every system prompt to inform
+// the model about the four read-only navigation tools.
+const navOrientationClause = `
+
+You also have four read-only tools for exploring the existing plan:
+get_lineage, get_item_detail, get_siblings, and trace_links. Use them
+when you need context the founder has not given you — for example,
+to see what siblings already exist before proposing a new item, or
+to read the full body of an ancestor referenced in the conversation.
+Each takes one argument: the entity ID (e.g. "EPIC-007").`
+
+// navToolDefs returns the four navigation tool definitions.
+func navToolDefs() []driven.Tool {
+	idSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id": map[string]any{
+				"type":        "string",
+				"description": "The entity ID to look up (e.g. \"IDEA-001\", \"EPIC-003\", \"FEAT-007\").",
+				"minLength":   1,
+			},
+		},
+		"required":             []string{"id"},
+		"additionalProperties": false,
+	}
+	return []driven.Tool{
+		{
+			Name:        driven.ToolGetLineage,
+			Description: "Return the ancestor chain from root down to the given entity, e.g. \"IDEA-001 > EPIC-003 > FEAT-007\". Use this to understand where an entity sits in the hierarchy.",
+			InputSchema: idSchema,
+		},
+		{
+			Name:        driven.ToolGetItemDetail,
+			Description: "Return the full detail of one entity: kind, ID, title, status, priority/size, description body, and any external refs. Use this to read an ancestor, sibling, or linked item.",
+			InputSchema: idSchema,
+		},
+		{
+			Name:        driven.ToolGetSiblings,
+			Description: "List all siblings of the given entity (same parent), excluding the entity itself. Each line shows ID, title, and status. Use this to see what already exists before proposing new items.",
+			InputSchema: idSchema,
+		},
+		{
+			Name:        driven.ToolTraceLinks,
+			Description: "List all cross-links touching the given entity (blocked-by, blocks, relates-to, duplicates), direction-normalized. Use this to discover dependencies and related work.",
+			InputSchema: idSchema,
+		},
+	}
+}
