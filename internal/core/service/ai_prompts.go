@@ -92,7 +92,7 @@ The description you ultimately propose should:
   • Be two to five short paragraphs, plain prose. No bullet lists unless they genuinely clarify. No section headings.
   • Not include details that did not come up in the conversation. If a detail was not discussed, do not invent it.
 
-On every turn you MUST call exactly one tool: either ask_question (to interview) or submit_proposal (to finalize). Do not answer in plain text.
+On every turn you MUST call exactly one tool. The primary tools are ask_question (to interview) and submit_proposal (to finalize). You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.
 
 If you are ever unsure, ask. You have budget for many questions. The goal is a description the owner recognizes as their idea, written well.`
 
@@ -124,7 +124,7 @@ The description you ultimately propose should:
   • Be two to five short paragraphs, plain prose. No bullet lists unless they genuinely clarify. No section headings.
   • Not include requirements that did not come up in the conversation. If a detail was not discussed, do not invent it.
 
-On every turn you MUST call exactly one tool: either ask_question (to interview) or submit_proposal (to finalize). Do not answer in plain text.
+On every turn you MUST call exactly one tool. The primary tools are ask_question (to interview) and submit_proposal (to finalize). You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.
 
 If you are ever unsure, ask. You have budget for many questions. The goal is a description the owner recognizes as their capability, written well.`
 
@@ -156,7 +156,7 @@ The description you ultimately propose should:
   • Be two to five short paragraphs, plain prose. No bullet lists unless they genuinely clarify. No section headings.
   • Not include requirements that did not come up in the conversation. If a detail was not discussed, do not invent it.
 
-On every turn you MUST call exactly one tool: either ask_question (to interview) or submit_proposal (to finalize). Do not answer in plain text.
+On every turn you MUST call exactly one tool. The primary tools are ask_question (to interview) and submit_proposal (to finalize). You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.
 
 If you are ever unsure, ask. You have budget for many questions. The goal is a description the owner recognizes as their feature, written well.`
 
@@ -188,7 +188,7 @@ The description you ultimately propose should:
   • Be two to five short paragraphs, plain prose. No bullet lists unless they genuinely clarify. No section headings.
   • Not include requirements that did not come up in the conversation. If a detail was not discussed, do not invent it.
 
-On every turn you MUST call exactly one tool: either ask_question (to interview) or submit_proposal (to finalize). Do not answer in plain text.
+On every turn you MUST call exactly one tool. The primary tools are ask_question (to interview) and submit_proposal (to finalize). You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.
 
 If you are ever unsure, ask. You have budget for many questions. The goal is a description the owner recognizes as their idea, written well.`
 
@@ -306,7 +306,7 @@ Rules for the proposal:
   • No filler. If you are reaching for an epic to hit a number, stop reaching.
   • Descriptions are prose, not bullet lists, not section headings.
 
-On every turn you MUST call exactly one tool: either ask_question (to interview) or submit_proposal (to finalize). Do not answer in plain text.`
+On every turn you MUST call exactly one tool. The primary tools are ask_question (to interview) and submit_proposal (to finalize). You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.`
 
 const suggestEpicsSubmitDescription = "Finalize the list of epics. Only call this when you can describe each one as a standalone capability in one to three short paragraphs and the owner's intent is clear."
 
@@ -335,7 +335,7 @@ Rules for the proposal:
   • No overlap, no filler, no "technical" features like "set up the database."
   • Descriptions are prose, not bullet lists.
 
-On every turn you MUST call exactly one tool: either ask_question or submit_proposal. Do not answer in plain text.`
+On every turn you MUST call exactly one tool. The primary tools are ask_question and submit_proposal. You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.`
 
 const suggestFeaturesSubmitDescription = "Finalize the list of features for this epic. Each item should be a coherent chunk of user-visible behavior with a clear boundary."
 
@@ -364,7 +364,7 @@ Rules for the proposal:
   • No slices that are purely technical ("add a cache," "refactor X"). Every story is user-visible.
   • Descriptions are prose, not bullet lists.
 
-On every turn you MUST call exactly one tool: either ask_question or submit_proposal. Do not answer in plain text.`
+On every turn you MUST call exactly one tool. The primary tools are ask_question and submit_proposal. You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.`
 
 const suggestStoriesSubmitDescription = "Finalize the list of stories for this feature. Each item should be a user-visible slice that could ship on its own."
 
@@ -392,7 +392,7 @@ Rules for the proposal:
   • Each spec covers a distinct topic; no overlap.
   • Descriptions are prose, not bullet lists. No "Given/When/Then" here — that comes at the scenario layer.
 
-On every turn you MUST call exactly one tool: either ask_question or submit_proposal. Do not answer in plain text.`
+On every turn you MUST call exactly one tool. The primary tools are ask_question and submit_proposal. You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.`
 
 const suggestSpecsSubmitDescription = "Finalize the list of specs for this story. Each item should be a focused prose document covering one topic of rules or constraints."
 
@@ -423,7 +423,7 @@ Rules for the proposal:
   • No placeholder text ("TODO," "TBD," "<value>") in steps.
   • When list has at least one step; Then list has at least one step. Given list may be empty when the scenario has no preconditions.
 
-On every turn you MUST call exactly one tool: either ask_question or submit_proposal. Do not answer in plain text.`
+On every turn you MUST call exactly one tool. The primary tools are ask_question and submit_proposal. You may also call one of the read-only navigation tools described below when you need context. Do not answer in plain text.`
 
 const suggestScenariosSubmitDescription = "Finalize the list of scenarios for this spec. Each item is one Given/When/Then example that a cucumber-style runner could execute."
 
@@ -435,12 +435,14 @@ const suggestScenariosSubmitDescription = "Finalize the list of scenarios for th
 // the model about the four read-only navigation tools.
 const navOrientationClause = `
 
-You also have four read-only tools for exploring the existing plan:
-get_lineage, get_item_detail, get_siblings, and trace_links. Use them
-when you need context the founder has not given you — for example,
-to see what siblings already exist before proposing a new item, or
-to read the full body of an ancestor referenced in the conversation.
-Each takes one argument: the entity ID (e.g. "EPIC-007").`
+Before you ask your first question or submit a proposal, orient yourself by calling the navigation tools. These are read-only and return plain text:
+
+  • get_lineage(id) — show the ancestor chain from root to this entity.
+  • get_item_detail(id) — read the full body of an ancestor, sibling, or linked item.
+  • get_siblings(id) — list what siblings already exist under the same parent. Use this before proposing new items so you do not overlap with work that already exists.
+  • trace_links(id) — list cross-links (blocked-by, relates-to, duplicates) touching the entity.
+
+Each takes one argument: the entity ID (e.g. "EPIC-007"). You should call at least one navigation tool on your first turn unless the target entity is an Idea at the root of the tree, and you may call more whenever you need more context. Navigation calls do not use up your question budget. Once you have enough context, switch to ask_question or submit_proposal as appropriate.`
 
 // navToolDefs returns the four navigation tool definitions.
 func navToolDefs() []driven.Tool {
