@@ -17,6 +17,9 @@ type FileSystem interface {
 	Stat(path string) (fs.FileInfo, error)
 	// MkdirAll creates path and any necessary parents with the given perm.
 	MkdirAll(path string, perm fs.FileMode) error
+	// RemoveAll removes path and any children it contains. It returns nil
+	// if the path does not exist.
+	RemoveAll(path string) error
 	// ReadFile reads the named file and returns its contents.
 	ReadFile(path string) ([]byte, error)
 	// WriteFile writes data to the named file, creating it if necessary.

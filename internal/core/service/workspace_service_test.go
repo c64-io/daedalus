@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,13 +18,15 @@ import (
 // fakeFS is an in-memory FileSystem fake sufficient for WorkspaceService
 // tests. It tracks created directories and pre-existing paths.
 type fakeFS struct {
-	cwd      string
-	existing map[string]bool // paths that should report as present to Stat
-	created  map[string]fs.FileMode
-	files    map[string][]byte // in-memory file contents for ReadFile/WriteFile
-	getwdErr error
-	absErr   error
-	mkdirErr error
+	cwd       string
+	existing  map[string]bool // paths that should report as present to Stat
+	created   map[string]fs.FileMode
+	files     map[string][]byte // in-memory file contents for ReadFile/WriteFile
+	removed   []string          // paths passed to RemoveAll, in order
+	getwdErr  error
+	absErr    error
+	mkdirErr  error
+	removeErr error
 }
 
 func newFakeFS(cwd string) *fakeFS {
@@ -64,6 +67,25 @@ func (f *fakeFS) MkdirAll(path string, perm fs.FileMode) error {
 		return f.mkdirErr
 	}
 	f.created[path] = perm
+	return nil
+}
+
+func (f *fakeFS) RemoveAll(path string) error {
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.removed = append(f.removed, path)
+	prefix := path + string(filepath.Separator)
+	for p := range f.files {
+		if p == path || strings.HasPrefix(p, prefix) {
+			delete(f.files, p)
+		}
+	}
+	for p := range f.created {
+		if p == path || strings.HasPrefix(p, prefix) {
+			delete(f.created, p)
+		}
+	}
 	return nil
 }
 
