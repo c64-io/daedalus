@@ -307,6 +307,8 @@ internal/core/
                                               #   FeaturesSuggester, StoriesSuggester,
                                               #   SpecsSuggester, ScenariosSuggester,
                                               #   Suggester (bundle)
+      export.go                               # GherkinExportRequest, GherkinExportResult,
+                                              #   GherkinExporter, Export (bundle)
       (future) code_generator.go              # generation use case
       (future) verifier.go                    # d7 verify use case
     driven/                                   # outbound ports (service → adapter)
@@ -320,7 +322,7 @@ internal/core/
       link.go                                 # LinkRepository, RefRepository, EntityResolver,
                                               #   ErrLinkNotFound, ErrRefNotFound, ErrEntityNotFound
       history.go                              # HistoryRepository
-      filesystem.go                           # FileSystem
+      filesystem.go                           # FileSystem (incl. RemoveAll for export pruning)
       editor.go                               # Editor ($EDITOR)
       ai.go                                   # AIAssistant, ChatRequest/Response, Tool, Usage,
                                               #   ErrAIAuthFailed/RateLimited/Overloaded/…,
@@ -334,6 +336,8 @@ internal/core/
   service/                                    # pure use-case implementations
                                               #   — includes StoryExpandService + the
                                               #   non-recursive AI dialog runner (ai_loop.go)
+                                              #   and ExportService (export_service.go),
+                                              #   the pure Gherkin .feature renderer/pruner
 internal/adapter/
   driving/cli/                                # cobra commands
   driven/
@@ -493,7 +497,8 @@ Implemented:
   `Step`, `DataTable`, `Link`, `LinkKind`, `Ref`, `Status` (with
   transition state machine including `blocked`), `Target`, `Priority`,
   `Size`, `HistoryEntry`, `ProjectDescription`, `FrontMatterField`.
-  Domain also exposes `FormatScenarioAsGherkin` (pure),
+  Domain also exposes `FormatScenarioAsGherkin` and
+  `FormatFeatureFile` (both pure),
   `FormatScenarioYAML` / `ParseScenarioYAML` (round-trip via
   `gopkg.in/yaml.v3`), and `ParseEntityPrefix` / `ParseLinkKind`.
 - Ports are split into `port/driving` (inbound, CLI → service) and
@@ -509,12 +514,12 @@ Implemented:
   `LinkAdder`, `LinkRemover`, `LinkReader`,
   `RefAdder`, `RefRemover`, `RefReader`,
   `IdeaExpander`, `EpicExpander`, `FeatureExpander`, `StoryExpander`,
+  `GherkinExporter`,
   plus per-subtree bundle interfaces (`Workspace`, `Idea`, `Epic`,
-  `Feature`, `Story`, `Spec`, `Scenario`, `Link`, `Ref`, `Expander`)
-  that embed the narrow ports — used at the root-wiring seam to keep
-  `NewRootCmd`'s parameter list flat (11 bundles vs. 30 narrow ports)
-  while individual CLI subcommands still take the exact narrow port
-  they need.
+  `Feature`, `Story`, `Spec`, `Scenario`, `Link`, `Ref`, `Expander`,
+  `Suggester`, `Export`) that embed the narrow ports — used at the
+  root-wiring seam to keep `NewRootCmd`'s parameter list flat while
+  individual CLI subcommands still take the exact narrow port they need.
   Driven: `WorkspaceRepository`, `IdeaRepository`, `EpicRepository`,
   `FeatureRepository`, `StoryRepository`, `SpecRepository`,
   `ScenarioRepository`, `LinkRepository`, `RefRepository`,
@@ -594,13 +599,31 @@ Implemented:
   question interview budget, 2 malformed retries, 3 rate-limit
   retries. Abort is a clean exit with no DB writes. Requires
   `ANTHROPIC_API_KEY` in the environment.
+- `d7 export gherkin` renders every scenario in the workspace to
+  Gherkin `.feature` files under `d7/exports/features/`, one file per
+  Spec, grouped by parent Story
+  (`d7/exports/features/<STORY-ID>/<SPEC-ID>.feature`). The Gherkin
+  `Feature:` title is the Spec title; each Scenario is emitted in
+  creation order with its steps. Linkage back to the plan is by tag:
+  every Scenario carries its mandatory `@d7:<SCEN-ID>` (the exact-match
+  key the verify ledger will use), and each feature file inherits its
+  ancestor tags at the `Feature:` level — `@d7:EPIC-XXX @d7:FEAT-XXX
+  @d7:STORY-XXX @d7:SPEC-XXX` — so a runner can select a whole subtree
+  with `--tags @d7:STORY-047` (both godog and cucumber-js push
+  feature-level tags down onto every scenario). Export is **one-way**
+  (Clover is the source of truth; nothing is read back) and rewrites
+  the features directory on every run, pruning files for Specs that no
+  longer have Scenarios; each file gets a generated-file header.
+  Output is sorted by ID so the committed `.feature` files diff
+  cleanly. No `ANTHROPIC_API_KEY` needed — this is a plain data
+  command. The pure renderer is `domain.FormatFeatureFile`; the use
+  case is `ExportService` (driving port `GherkinExporter`), which adds
+  `RemoveAll` to the `FileSystem` driven port for tree pruning.
 
-Not yet implemented: additional AI commands (`d7 refine`), Gherkin
-export (including the mandatory `@d7:<ID>` tag prepended at export
-time), the agentic generator, worktree isolation, regeneration, the
-ScenarioRunner port, and the verify loop. All are planned surface
-area and should be built incrementally, each behind its own port,
-each with the same discipline.
+Not yet implemented: additional AI commands (`d7 refine`), the agentic
+generator, worktree isolation, regeneration, the ScenarioRunner port,
+and the verify loop. All are planned surface area and should be built
+incrementally, each behind its own port, each with the same discipline.
 
 ## Build & verify
 
@@ -727,6 +750,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 /tmp/d7 spec set SPEC-002 --status refined
 /tmp/d7 suggest scenarios --spec SPEC-002
 /tmp/d7 scenario list --spec SPEC-002
+
+# Gherkin export — no API key needed. Writes one .feature file per spec
+# under d7/exports/features/<STORY>/<SPEC>.feature, tags each scenario
+# with @d7:<SCEN-ID> and each feature with its ancestor tags, and prunes
+# stale files. Safe to re-run; output is sorted for clean diffs.
+/tmp/d7 export gherkin
+find /tmp/d7-test/d7/exports/features -type f
+cat /tmp/d7-test/d7/exports/features/STORY-001/SPEC-001.feature
 ```
 
 ## Working in this repo (for Claude Code sessions)

@@ -65,6 +65,9 @@ func main() {
 		epicSvc, featureSvc, storySvc, specSvc, scenarioSvc,
 		llm, inter, status, clock,
 	)
+	exportSvc := service.NewExportService(
+		fs, storyRepo, specRepo, scenarioRepo, featureRepo, epicRepo,
+	)
 
 	root := cli.NewRootCmd(
 		wsSvc,       // driving.Workspace
@@ -78,6 +81,7 @@ func main() {
 		linkSvc,     // driving.Ref (same concrete svc)
 		expandSvc,   // driving.Expander
 		suggestSvc,  // driving.Suggester
+		exportSvc,   // driving.Export
 		editor,
 	)
 
